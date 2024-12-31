@@ -34,6 +34,18 @@ internal static class Program
                 ChannelName = e.ChatMessage.Channel
             });
 
+            if (!(await dbContext.ChannelUsers.AnyAsync
+                    (u => u.UserId == e.ChatMessage.UserId && 
+                          u.ChannelName == e.ChatMessage.Channel)))
+            {
+                await dbContext.ChannelUsers.AddAsync(new ChannelUser
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = e.ChatMessage.UserId,
+                    ChannelName = e.ChatMessage.Channel
+                });
+            }
+
             await dbContext.SaveChangesAsync();
 
             Console.WriteLine($"[{e.ChatMessage.Channel}] " +
@@ -61,7 +73,9 @@ internal static class Program
         client.OnMessageReceived += (sender, e) => ClientOnMessageReceived(sender, e, dbContext);
         client.Connect();
 
+        Console.ForegroundColor = ConsoleColor.DarkGreen;
         Console.WriteLine($"Connected to {channelName}.");
+        Console.ResetColor();
     }
 
     private static void Main(string[] args)

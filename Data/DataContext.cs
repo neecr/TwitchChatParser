@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using System.Threading.Channels;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using TwitchChatParser.Models;
 
@@ -16,17 +17,7 @@ public class DataContext : DbContext
 
     public DbSet<Message> Messages { get; set; }
     public DbSet<User> Users { get; set; }
-
-    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
-    {
-        var configuration = new ConfigurationBuilder()
-            .SetBasePath(Directory.GetParent(Environment.CurrentDirectory)!.Parent!.Parent!.FullName)
-            .AddJsonFile("appsettings.json")
-            .Build();
-
-        if (!optionsBuilder.IsConfigured) optionsBuilder.UseNpgsql(configuration["ConnectionStrings:DefaultDB"]);
-    }
-
+    public DbSet<ChannelUser> ChannelUsers { get; set; }
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -38,6 +29,16 @@ public class DataContext : DbContext
             entity.HasOne(m => m.User)
                 .WithMany()
                 .HasForeignKey(m => m.UserId)
+                .IsRequired();
+        });
+        
+        modelBuilder.Entity<ChannelUser>(entity =>
+        {
+            entity.HasKey(channelUser => channelUser.Id);
+            
+            entity.HasOne(channelUser => channelUser.User)
+                .WithMany()
+                .HasForeignKey(channelUser => channelUser.UserId)
                 .IsRequired();
         });
     }
