@@ -11,9 +11,9 @@ namespace TwitchChatParser;
 
 internal static class Program
 {
-    private static string ConnectionString = string.Empty;
+    private static string _connectionString = string.Empty;
 
-    private static async Task ClientOnMessageReceived(object? sender, OnMessageReceivedArgs e, DataContext dbContext)
+    private static async Task WriteInDatabase(OnMessageReceivedArgs e, DataContext dbContext)
     {
         try
         {
@@ -34,23 +34,17 @@ internal static class Program
                 ChannelName = e.ChatMessage.Channel
             });
 
-            if (!(await dbContext.ChannelUsers.AnyAsync
-                    (u => u.UserId == e.ChatMessage.UserId && 
-                          u.ChannelName == e.ChatMessage.Channel)))
-            {
+            if (!await dbContext.ChannelUsers.AnyAsync
+                (u => u.UserId == e.ChatMessage.UserId &&
+                      u.ChannelName == e.ChatMessage.Channel))
                 await dbContext.ChannelUsers.AddAsync(new ChannelUser
                 {
                     Id = Guid.NewGuid(),
                     UserId = e.ChatMessage.UserId,
                     ChannelName = e.ChatMessage.Channel
                 });
-            }
 
             await dbContext.SaveChangesAsync();
-
-            Console.WriteLine($"[{e.ChatMessage.Channel}] " +
-                              $"{e.ChatMessage.DisplayName}: " +
-                              $"{e.ChatMessage.Message}");
         }
         catch (Exception ex)
         {
@@ -58,6 +52,19 @@ internal static class Program
             Console.WriteLine($"Error: {ex.Message}");
             Console.ResetColor();
         }
+    }
+
+    private static Task LogInConsole(OnMessageReceivedArgs e)
+    {
+        var ansiStyle =
+            $"\e[1;38;2;{e.ChatMessage.Color.R};{e.ChatMessage.Color.G};{e.ChatMessage.Color.B}m";
+
+        var log =
+            $"[{e.ChatMessage.Channel}] \e[38;5;{ansiStyle}{e.ChatMessage.DisplayName}\e[0m: {e.ChatMessage.Message}";
+
+        Console.WriteLine(log);
+
+        return Task.CompletedTask;
     }
 
     private static void InitializeTwitchClient(string userName, string accessToken, string channelName,
@@ -69,10 +76,12 @@ internal static class Program
 
         var scope = serviceProvider.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<DataContext>();
-
-        client.OnMessageReceived += (sender, e) => ClientOnMessageReceived(sender, e, dbContext);
-        client.Connect();
-
+        
+        client.OnMessageReceived += (_, e) => LogInConsole(e);
+        client.OnMessageReceived += (_, e) => WriteInDatabase(e, dbContext);
+        
+        client.ConnectAsync();
+        
         Console.ForegroundColor = ConsoleColor.DarkGreen;
         Console.WriteLine($"Connected to {channelName}.");
         Console.ResetColor();
@@ -89,10 +98,10 @@ internal static class Program
 
         var services = new ServiceCollection();
 
-        ConnectionString = configuration["ConnectionStrings:DefaultDB"]
-                           ?? throw new InvalidOperationException("ConnectionString is missing.");
+        _connectionString = configuration["ConnectionStrings:DefaultDB"]
+                            ?? throw new InvalidOperationException("ConnectionString is missing.");
 
-        services.AddDbContext<DataContext>(options => options.UseNpgsql(ConnectionString));
+        services.AddDbContext<DataContext>(options => options.UseNpgsql(_connectionString));
 
         var serviceProvider = services.BuildServiceProvider();
 
