@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using TwitchChatParser.Data;
@@ -11,7 +12,71 @@ namespace TwitchChatParser;
 
 internal static class Program
 {
+    private static IConfigurationRoot _configuration;
     private static string _connectionString = string.Empty;
+
+    private static void MakeNewAccessToken(string refreshToken, DataContext dbContext)
+    {
+        using var client = new HttpClient();
+
+        var values = new Dictionary<string, string>
+        {
+            { "client_id", _configuration["Twitch:ClientId"]! },
+            { "client_secret", _configuration["Twitch:ClientSecret"]! },
+            { "grant_type", "refresh_token" },
+            { "refresh_token", refreshToken }
+        };
+
+        var content = new FormUrlEncodedContent(values);
+        var response = client.PostAsync("https://id.twitch.tv/oauth2/token", content);
+
+        response.Result.EnsureSuccessStatusCode();
+
+        var jsonResponse = JsonDocument.Parse(response.Result.Content.ReadAsStringAsync().Result);
+
+        Console.WriteLine(jsonResponse.RootElement.GetRawText());
+
+        var jsonRoot = jsonResponse.RootElement;
+        WriteTokenInDatabase(new TokenInfo
+        {
+            Id = Guid.NewGuid(),
+            AccessToken = jsonRoot.GetProperty("access_token").GetString()!,
+            ExpiresAt = jsonRoot.GetProperty("expires_in").GetInt32(),
+            RefreshToken = jsonRoot.GetProperty("refresh_token").GetString()!,
+            CreatedAt = DateTime.UtcNow
+        }, dbContext);
+    }
+
+    private static string GetAccessToken(DataContext dbContext)
+    {
+        var lastToken = dbContext.TokenInfos
+            .OrderByDescending(t => t.CreatedAt)
+            .FirstOrDefault()!;
+
+        if (DateTime.UtcNow >= lastToken.CreatedAt.AddSeconds(lastToken.ExpiresAt))
+        {
+            Console.WriteLine(
+                $"Token '{lastToken.AccessToken}' expired at {lastToken.CreatedAt + TimeSpan.FromSeconds(lastToken.ExpiresAt)} UTC");
+            Console.WriteLine("Creating new access token...");
+            MakeNewAccessToken(lastToken.RefreshToken, dbContext);
+            lastToken = dbContext.TokenInfos
+                .OrderByDescending(t => t.CreatedAt)
+                .FirstOrDefault()!;
+        }
+        else
+        {
+            Console.WriteLine(
+                $"Token '{lastToken.AccessToken}' is valid, expires at {lastToken.CreatedAt + TimeSpan.FromSeconds(lastToken.ExpiresAt)} UTC");
+        }
+
+        return lastToken.AccessToken;
+    }
+
+    private static void WriteTokenInDatabase(TokenInfo token, DataContext dbContext)
+    {
+        dbContext.TokenInfos.Add(token);
+        dbContext.SaveChanges();
+    }
 
     private static async Task WriteInDatabase(OnMessageReceivedArgs e, DataContext dbContext)
     {
@@ -56,11 +121,11 @@ internal static class Program
 
     private static Task LogInConsole(OnMessageReceivedArgs e)
     {
-        var ansiStyle =
-            $"\e[1;38;2;{e.ChatMessage.Color.R};{e.ChatMessage.Color.G};{e.ChatMessage.Color.B}m";
-
         var log =
-            $"[{e.ChatMessage.Channel}] \e[38;5;{ansiStyle}{e.ChatMessage.DisplayName}\e[0m: {e.ChatMessage.Message}";
+            $"[{e.ChatMessage.Channel}] \e[38;5;\e[1;38;2;" +
+            $"{e.ChatMessage.Color.R};" +
+            $"{e.ChatMessage.Color.G};" +
+            $"{e.ChatMessage.Color.B}m{e.ChatMessage.DisplayName}\e[0m: {e.ChatMessage.Message}";
 
         Console.WriteLine(log);
 
@@ -74,14 +139,13 @@ internal static class Program
         var client = new TwitchClient();
         client.Initialize(credentials, channelName);
 
-        var scope = serviceProvider.CreateScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<DataContext>();
-        
+        var dbContext = serviceProvider.CreateScope().ServiceProvider.GetRequiredService<DataContext>();
+
         client.OnMessageReceived += (_, e) => LogInConsole(e);
         client.OnMessageReceived += (_, e) => WriteInDatabase(e, dbContext);
-        
+
         client.ConnectAsync();
-        
+
         Console.ForegroundColor = ConsoleColor.DarkGreen;
         Console.WriteLine($"Connected to {channelName}.");
         Console.ResetColor();
@@ -89,29 +153,40 @@ internal static class Program
 
     private static void Main(string[] args)
     {
-        if (args.Length == 0) throw new Exception("No arguments provided.");
+        if (args.Length == 0) throw new Exception("No channel names provided.");
 
-        var configuration = new ConfigurationBuilder()
+        var configPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+        if (!File.Exists(configPath))
+            throw new FileNotFoundException("Missing appsettings.json file", configPath);
+
+        _configuration = new ConfigurationBuilder()
             .SetBasePath(Directory.GetParent(Environment.CurrentDirectory)!.Parent!.Parent!.FullName)
-            .AddJsonFile("appsettings.json", true, true)
+            .AddJsonFile("appsettings.json")
             .Build();
 
-        var services = new ServiceCollection();
+        _connectionString = _configuration["ConnectionStrings:DefaultDB"]
+                            ?? throw new InvalidOperationException("ConnectionString in appsettings.json is missing.");
 
-        _connectionString = configuration["ConnectionStrings:DefaultDB"]
-                            ?? throw new InvalidOperationException("ConnectionString is missing.");
+        var userName = _configuration["Twitch:Username"]
+                       ?? throw new InvalidOperationException("Twitch username appsettings.json is missing.");
+
+        if (_configuration["Twitch:ClientId"] == null)
+            throw new InvalidOperationException("Client ID in appsettings.json is missing.");
+        if (_configuration["Twitch:ClientSecret"] == null)
+            throw new InvalidOperationException("Client secret in appsettings.json is missing.");
+
+        var services = new ServiceCollection();
 
         services.AddDbContext<DataContext>(options => options.UseNpgsql(_connectionString));
 
         var serviceProvider = services.BuildServiceProvider();
+        var dbContext = serviceProvider.GetRequiredService<DataContext>();
 
-        var userName = configuration["Twitch:Username"]
-                       ?? throw new InvalidOperationException("Username is missing.");
-        var accessToken = configuration["Twitch:AccessToken"]
-                          ?? throw new InvalidOperationException("AccessToken is missing.");
+        var accessToken = GetAccessToken(dbContext);
 
         foreach (var channelName in args) InitializeTwitchClient(userName, accessToken, channelName, serviceProvider);
 
         Console.ReadLine();
+        Environment.Exit(0);
     }
 }
