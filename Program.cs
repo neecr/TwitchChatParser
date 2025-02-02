@@ -61,15 +61,13 @@ internal static class Program
         if (DateTime.UtcNow >= lastToken.CreatedAt.AddSeconds(lastToken.ExpiresAt))
         {
             Console.WriteLine(
-                $"Current token expired at {lastToken.CreatedAt + TimeSpan.FromSeconds(lastToken.ExpiresAt) +
-                                            TimeZoneInfo.Local.BaseUtcOffset} {TimeZoneInfo.Local.DisplayName}");
+                $"Token '{lastToken.AccessToken}' expired at {lastToken.CreatedAt + TimeSpan.FromSeconds(lastToken.ExpiresAt) + TimeZoneInfo.Local.BaseUtcOffset}");
             Console.WriteLine("Creating new access token...");
             return MakeNewAccessToken(lastToken.RefreshToken, dbContext).AccessToken;
         }
 
         Console.WriteLine(
-            $"Current token is valid, expires at {lastToken.CreatedAt + TimeSpan.FromSeconds(lastToken.ExpiresAt) +
-                                                  TimeZoneInfo.Local.BaseUtcOffset} {TimeZoneInfo.Local.DisplayName}");
+            $"Token '{lastToken.AccessToken}' is valid, expires at {lastToken.CreatedAt + TimeSpan.FromSeconds(lastToken.ExpiresAt) + TimeZoneInfo.Local.BaseUtcOffset} {TimeZoneInfo.Local.StandardName}");
 
         return lastToken.AccessToken;
     }
