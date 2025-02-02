@@ -15,7 +15,7 @@ internal static class Program
     private static IConfigurationRoot _configuration;
     private static string _connectionString = string.Empty;
 
-    private static void MakeNewAccessToken(string refreshToken, DataContext dbContext)
+    private static TokenInfo MakeNewAccessToken(string refreshToken, DataContext dbContext)
     {
         using var client = new HttpClient();
 
@@ -34,17 +34,22 @@ internal static class Program
 
         var jsonResponse = JsonDocument.Parse(response.Result.Content.ReadAsStringAsync().Result);
 
-        Console.WriteLine(jsonResponse.RootElement.GetRawText());
-
         var jsonRoot = jsonResponse.RootElement;
-        WriteTokenInDatabase(new TokenInfo
+
+        var newToken = new TokenInfo
         {
             Id = Guid.NewGuid(),
             AccessToken = jsonRoot.GetProperty("access_token").GetString()!,
             ExpiresAt = jsonRoot.GetProperty("expires_in").GetInt32(),
             RefreshToken = jsonRoot.GetProperty("refresh_token").GetString()!,
             CreatedAt = DateTime.UtcNow
-        }, dbContext);
+        };
+
+        dbContext.TokenInfos.Add(newToken);
+
+        dbContext.SaveChanges();
+
+        return newToken;
     }
 
     private static string GetAccessToken(DataContext dbContext)
@@ -56,32 +61,24 @@ internal static class Program
         if (DateTime.UtcNow >= lastToken.CreatedAt.AddSeconds(lastToken.ExpiresAt))
         {
             Console.WriteLine(
-                $"Token '{lastToken.AccessToken}' expired at {lastToken.CreatedAt + TimeSpan.FromSeconds(lastToken.ExpiresAt)} UTC");
+                $"Token '{lastToken.AccessToken}' expired at {lastToken.CreatedAt + TimeSpan.FromSeconds(lastToken.ExpiresAt) + TimeZoneInfo.Local.BaseUtcOffset}");
             Console.WriteLine("Creating new access token...");
-            MakeNewAccessToken(lastToken.RefreshToken, dbContext);
-            lastToken = dbContext.TokenInfos
-                .OrderByDescending(t => t.CreatedAt)
-                .FirstOrDefault()!;
+            return MakeNewAccessToken(lastToken.RefreshToken, dbContext).AccessToken;
         }
-        else
-        {
-            Console.WriteLine(
-                $"Token '{lastToken.AccessToken}' is valid, expires at {lastToken.CreatedAt + TimeSpan.FromSeconds(lastToken.ExpiresAt)} UTC");
-        }
+
+        Console.WriteLine(
+            $"Token '{lastToken.AccessToken}' is valid, expires at {lastToken.CreatedAt + TimeSpan.FromSeconds(lastToken.ExpiresAt) + TimeZoneInfo.Local.BaseUtcOffset} {TimeZoneInfo.Local.StandardName}");
 
         return lastToken.AccessToken;
-    }
-
-    private static void WriteTokenInDatabase(TokenInfo token, DataContext dbContext)
-    {
-        dbContext.TokenInfos.Add(token);
-        dbContext.SaveChanges();
     }
 
     private static async Task WriteInDatabase(OnMessageReceivedArgs e, DataContext dbContext)
     {
         try
         {
+            await using var transaction = await dbContext.Database.BeginTransactionAsync();
+
+            // Add a user in db if not exists
             if (!await dbContext.Users.AnyAsync(u => u.Id == e.ChatMessage.UserId))
                 await dbContext.Users.AddAsync(new User
                 {
@@ -90,6 +87,7 @@ internal static class Program
                     CreatedAt = DateTime.UtcNow
                 });
 
+            // Add a user message in db
             await dbContext.Messages.AddAsync(new Message
             {
                 Id = Guid.NewGuid(),
@@ -99,17 +97,22 @@ internal static class Program
                 ChannelName = e.ChatMessage.Channel
             });
 
+            // Adding a channel and user relation in db
             if (!await dbContext.ChannelUsers.AnyAsync
                 (u => u.UserId == e.ChatMessage.UserId &&
                       u.ChannelName == e.ChatMessage.Channel))
+            {
                 await dbContext.ChannelUsers.AddAsync(new ChannelUser
                 {
                     Id = Guid.NewGuid(),
                     UserId = e.ChatMessage.UserId,
                     ChannelName = e.ChatMessage.Channel
                 });
+            }
+
 
             await dbContext.SaveChangesAsync();
+            await transaction.CommitAsync();
         }
         catch (Exception ex)
         {
@@ -141,8 +144,11 @@ internal static class Program
 
         var dbContext = serviceProvider.CreateScope().ServiceProvider.GetRequiredService<DataContext>();
 
-        client.OnMessageReceived += (_, e) => LogInConsole(e);
-        client.OnMessageReceived += (_, e) => WriteInDatabase(e, dbContext);
+        client.OnMessageReceived += async (_, e) =>
+        {
+            await WriteInDatabase(e, dbContext);
+            await LogInConsole(e);
+        };
 
         client.ConnectAsync();
 
@@ -160,7 +166,7 @@ internal static class Program
             throw new FileNotFoundException("Missing appsettings.json file", configPath);
 
         _configuration = new ConfigurationBuilder()
-            .SetBasePath(Directory.GetParent(Environment.CurrentDirectory)!.Parent!.Parent!.FullName)
+            .SetBasePath(AppContext.BaseDirectory)
             .AddJsonFile("appsettings.json")
             .Build();
 
