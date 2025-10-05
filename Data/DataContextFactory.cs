@@ -9,13 +9,13 @@ public class DataContextFactory : IDesignTimeDbContextFactory<DataContext>
     public DataContext CreateDbContext(string[] args)
     {
         var configuration = new ConfigurationBuilder()
-            .SetBasePath(Directory.GetParent(AppContext.BaseDirectory)!.Parent!.Parent!.Parent!.FullName)
+            .SetBasePath(AppContext.BaseDirectory)
             .AddJsonFile("appsettings.json")
             .Build();
 
         var optionsBuilder = new DbContextOptionsBuilder<DataContext>();
 
-        optionsBuilder.UseNpgsql(configuration["ConnectionStrings:DefaultDB"]);
+        optionsBuilder.UseNpgsql(configuration["ConnectionString"]);
         return new DataContext(optionsBuilder.Options);
     }
 }
