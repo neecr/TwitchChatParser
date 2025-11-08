@@ -1,4 +1,4 @@
-﻿namespace TwitchChatParser.Models;
+﻿namespace TwitchChatParser.EfCore.Models;
 
 public class User
 {
