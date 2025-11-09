@@ -6,6 +6,9 @@ using Microsoft.Extensions.Logging;
 using Serilog;
 using Serilog.Events;
 using TwitchChatParser.EfCore.Data;
+using TwitchChatParser.HostedServices;
+using TwitchChatParser.Services;
+using TwitchChatParser.Utils;
 
 namespace TwitchChatParser;
 
@@ -42,7 +45,7 @@ internal class Program
                     services.AddScoped<DatabaseService>();
                     services.AddScoped<TokenService>();
 
-                    services.AddHostedService<MessageProcessingService>();
+                    services.AddHostedService<MessageProcessingHost>();
 
                     services.AddHostedService(sp =>
                     {

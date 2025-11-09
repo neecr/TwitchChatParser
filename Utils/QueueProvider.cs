@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using TwitchLib.Client.Events;
 
-namespace TwitchChatParser;
+namespace TwitchChatParser.Utils;
 
 public class QueueProvider
 {

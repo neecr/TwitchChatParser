@@ -2,11 +2,13 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using TwitchChatParser.Services;
+using TwitchChatParser.Utils;
 using TwitchLib.Client;
 using TwitchLib.Client.Events;
 using TwitchLib.Client.Models;
 
-namespace TwitchChatParser;
+namespace TwitchChatParser.HostedServices;
 
 public class TwitchHost(
     IConfiguration config,
@@ -30,7 +32,7 @@ public class TwitchHost(
 
         using var scope = scopeFactory.CreateScope();
         var dbService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
-        
+
         var processedChannels = await dbService.GetProcessedChannels(_channels.Select(c => c.ToLower()).ToList());
 
         _twitchClient.Initialize(credentials, processedChannels);

@@ -6,7 +6,7 @@ using TwitchChatParser.EfCore.Data;
 using TwitchChatParser.EfCore.Models;
 using TwitchChatParser.ResponsesModels;
 
-namespace TwitchChatParser;
+namespace TwitchChatParser.Services;
 
 public class TokenService(IConfiguration configuration, DataContext dataContext, ILogger<TokenService> logger)
 {
@@ -21,7 +21,7 @@ public class TokenService(IConfiguration configuration, DataContext dataContext,
 
         var response = httpClient.GetAsync(ValidationIrl);
         response.Result.EnsureSuccessStatusCode();
-        
+
         logger.LogInformation("Token is valid.");
     }
 

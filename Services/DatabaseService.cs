@@ -4,7 +4,7 @@ using TwitchChatParser.EfCore.Data;
 using TwitchChatParser.EfCore.Models;
 using TwitchLib.Client.Events;
 
-namespace TwitchChatParser;
+namespace TwitchChatParser.Services;
 
 public class DatabaseService(DataContext dbContext, ILogger<DatabaseService> logger, TokenService tokenService)
 {
@@ -37,7 +37,7 @@ public class DatabaseService(DataContext dbContext, ILogger<DatabaseService> log
                     CreationTime = DateTime.UtcNow
                 });
             await dbContext.Users.AddRangeAsync(newUsers);
-            
+
             var uniqueRelations = messages
                 .Select(m => new { m.ChatMessage.UserId, m.ChatMessage.RoomId })
                 .Distinct();
@@ -59,7 +59,7 @@ public class DatabaseService(DataContext dbContext, ILogger<DatabaseService> log
                     CreationTime = DateTime.UtcNow
                 });
             await dbContext.ChannelUserRelations.AddRangeAsync(newRelations);
-            
+
             var messageIds = messages.Select(m => m.ChatMessage.Id).ToList();
             var existingMessageIds = (await dbContext.Messages
                     .Where(m => messageIds.Contains(m.Id))
@@ -78,7 +78,7 @@ public class DatabaseService(DataContext dbContext, ILogger<DatabaseService> log
                 CreationTime = DateTime.UtcNow
             });
             await dbContext.Messages.AddRangeAsync(messageModels);
-            
+
             await dbContext.SaveChangesAsync();
             await transaction.CommitAsync();
 

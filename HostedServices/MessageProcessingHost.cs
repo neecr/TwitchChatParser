@@ -1,11 +1,13 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using TwitchChatParser.Services;
+using TwitchChatParser.Utils;
 
-namespace TwitchChatParser;
+namespace TwitchChatParser.HostedServices;
 
-public class MessageProcessingService(
-    ILogger<MessageProcessingService> logger,
+public class MessageProcessingHost(
+    ILogger<MessageProcessingHost> logger,
     QueueProvider queueProvider,
     IServiceProvider serviceProvider)
     : BackgroundService
