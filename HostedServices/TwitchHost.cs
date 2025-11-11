@@ -10,9 +10,9 @@ using TwitchLib.Client.Models;
 
 namespace TwitchChatParser.HostedServices;
 
+// ИСПРАВЛЕНО: Убран TokenService из конструктора, чтобы избежать ошибки DI.
 public class TwitchHost(
     IConfiguration config,
-    TokenService tokenService,
     IServiceScopeFactory scopeFactory,
     ILogger<TwitchHost> logger,
     QueueProvider queueProvider) : IHostedService
@@ -27,11 +27,12 @@ public class TwitchHost(
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
+        using var scope = scopeFactory.CreateScope();
+        var tokenService = scope.ServiceProvider.GetRequiredService<TokenService>();
+        var dbService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
+
         var accessToken = tokenService.GetAccessToken();
         var credentials = new ConnectionCredentials(_username, accessToken);
-
-        using var scope = scopeFactory.CreateScope();
-        var dbService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
 
         var processedChannels = await dbService.GetProcessedChannels(_channels.Select(c => c.ToLower()).ToList());
 

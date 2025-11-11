@@ -2,7 +2,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Serilog;
 using Serilog.Events;
 using TwitchChatParser.EfCore.Data;
@@ -47,19 +46,10 @@ internal class Program
 
                     services.AddHostedService<MessageProcessingHost>();
 
-                    services.AddHostedService(sp =>
-                    {
-                        var config = sp.GetRequiredService<IConfiguration>();
-                        var tokenService = sp.GetRequiredService<TokenService>();
-                        var scopeFactory = sp.GetRequiredService<IServiceScopeFactory>();
-                        var logger = sp.GetRequiredService<ILogger<TwitchHost>>();
-                        var queueProvider = sp.GetRequiredService<QueueProvider>();
-
-                        return new TwitchHost(config, tokenService, scopeFactory, logger, queueProvider);
-                    });
-                })
-                .Build();
-
+                    services.AddHostedService<TwitchHost>();
+                }).Build();
+            
+            
             await host.RunAsync();
         }
         catch (Exception ex)
