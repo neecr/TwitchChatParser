@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace TwitchChatParser.ResponsesModels;
 
-public record UserData
+public record UserDataDto
 {
     [JsonPropertyName("id")] public string Id { get; set; }
 
@@ -25,9 +25,4 @@ public record UserData
     [JsonPropertyName("view_count")] public int ViewCount { get; set; }
 
     [JsonPropertyName("created_at")] public string CreatedAt { get; set; }
-}
-
-public record UserDataRootObject
-{
-    [JsonPropertyName("data")] public List<UserData> Data { get; set; }
 }
