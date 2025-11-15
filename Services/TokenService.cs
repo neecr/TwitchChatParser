@@ -13,26 +13,26 @@ public class TokenService(IConfiguration configuration, DataContext dataContext,
     private const string ValidationIrl = "https://id.twitch.tv/oauth2/validate";
     private const string TokenUrl = "https://id.twitch.tv/oauth2/token";
 
-    private void ValidateAccessToken(TokenInfo tokenInfo)
+    private async Task ValidateAccessTokenAsync(TokenInfo tokenInfo)
     {
         var httpClient = new HttpClient();
 
         httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {tokenInfo.AccessToken}");
 
-        var response = httpClient.GetAsync(ValidationIrl);
-        response.Result.EnsureSuccessStatusCode();
+        var response = await httpClient.GetAsync(ValidationIrl);
+        response.EnsureSuccessStatusCode();
 
-        logger.LogInformation("Token is valid.");
+        logger.LogDebug("Token is valid.");
     }
 
-    private async Task<TokenInfo> RefreshAccessToken(string refreshToken, DataContext dbContext)
+    private async Task<TokenInfo> RefreshAccessTokenAsync(string refreshToken, DataContext dbContext)
     {
         var httpClient = new HttpClient();
 
         var parameters = new Dictionary<string, string>
         {
-            { "client_id", configuration["ClientId"]! },
-            { "client_secret", configuration["ClientSecret"]! },
+            { "client_id", configuration["TwitchSettings:ClientId"]! },
+            { "client_secret", configuration["TwitchSettings:ClientSecret"]! },
             { "grant_type", "refresh_token" },
             { "refresh_token", refreshToken }
         };
@@ -41,7 +41,7 @@ public class TokenService(IConfiguration configuration, DataContext dataContext,
         var response = await httpClient.PostAsync(TokenUrl, content);
         response.EnsureSuccessStatusCode();
 
-        var jsonResponse = JsonDocument.Parse(response.Content.ReadAsStringAsync().Result);
+        var jsonResponse = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var jsonRoot = jsonResponse.RootElement;
 
         var newToken = new TokenInfo
@@ -59,27 +59,30 @@ public class TokenService(IConfiguration configuration, DataContext dataContext,
         return newToken;
     }
 
-    public string GetAccessToken()
+    public async Task<string> GetAccessTokenAsync(bool forceRefresh = false)
     {
         var lastToken = dataContext.TokenInfos
             .OrderByDescending(t => t.CreationTime)
-            .FirstOrDefault();
+            .FirstOrDefault() ?? throw new InvalidDataException("Token not found.");
 
-        if (lastToken == null) throw new Exception("Token not found.");
+        if (forceRefresh || DateTime.UtcNow >= lastToken.CreationTime.AddSeconds(lastToken.ExpirationTime))
+        {
+            logger.LogInformation("Token is expired or refresh is forced. Refreshing...");
+            var refreshedToken = await RefreshAccessTokenAsync(lastToken.RefreshToken, dataContext);
+            return refreshedToken.AccessToken;
+        }
 
-        if (DateTime.UtcNow >= lastToken.CreationTime.AddSeconds(lastToken.ExpirationTime))
-            return RefreshAccessToken(lastToken.RefreshToken, dataContext).Result.AccessToken;
-
-        ValidateAccessToken(lastToken);
+        await ValidateAccessTokenAsync(lastToken);
         return lastToken.AccessToken;
     }
 
-    public async Task<List<UserData>> GetUserDataByUsername(List<string> channels)
+    public async Task<List<UserDataDto>> GetUserDataByUsernameAsync(List<string> channels)
     {
         var httpClient = new HttpClient();
 
-        var accessToken = GetAccessToken();
-        var clientId = configuration["ClientId"] ?? throw new InvalidOperationException("ClientId is missing.");
+        var accessToken = await GetAccessTokenAsync();
+        var clientId = configuration["TwitchSettings:ClientId"] ??
+                       throw new InvalidOperationException("ClientId is missing.");
 
         var uriBuilder = new UriBuilder("https://api.twitch.tv/helix/users");
 
@@ -99,7 +102,7 @@ public class TokenService(IConfiguration configuration, DataContext dataContext,
         response.EnsureSuccessStatusCode();
 
         var root =
-            JsonSerializer.Deserialize<UserDataRootObject>(await response.Content.ReadAsStringAsync());
+            JsonSerializer.Deserialize<UserDataRootDto>(await response.Content.ReadAsStringAsync());
 
         return root.Data;
     }

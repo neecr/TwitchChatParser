@@ -102,7 +102,7 @@ public class DatabaseService(DataContext dbContext, ILogger<DatabaseService> log
 
         if (candidatesForApiLookup.Count == 0) return processedNames;
 
-        var newChannelsUserData = await tokenService.GetUserDataByUsername(candidatesForApiLookup);
+        var newChannelsUserData = await tokenService.GetUserDataByUsernameAsync(candidatesForApiLookup);
 
         var foundNamesByApi = newChannelsUserData
             .Select(userData => userData.DisplayName)

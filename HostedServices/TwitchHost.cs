@@ -10,19 +10,18 @@ using TwitchLib.Client.Models;
 
 namespace TwitchChatParser.HostedServices;
 
-// ИСПРАВЛЕНО: Убран TokenService из конструктора, чтобы избежать ошибки DI.
 public class TwitchHost(
     IConfiguration config,
     IServiceScopeFactory scopeFactory,
     ILogger<TwitchHost> logger,
     QueueProvider queueProvider) : IHostedService
 {
-    private readonly List<string> _channels = config.GetSection("Channels").Get<List<string>>() ??
+    private readonly List<string> _channels = config.GetSection("TwitchSettings:Channels").Get<List<string>>() ??
                                               throw new InvalidOperationException("Channels is missing in secrets.");
 
     private readonly TwitchClient _twitchClient = new();
 
-    private readonly string _username = config["Username"] ??
+    private readonly string _username = config["TwitchSettings:Username"] ??
                                         throw new InvalidOperationException("Username is missing in secrets.");
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -31,7 +30,7 @@ public class TwitchHost(
         var tokenService = scope.ServiceProvider.GetRequiredService<TokenService>();
         var dbService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
 
-        var accessToken = tokenService.GetAccessToken();
+        var accessToken = await tokenService.GetAccessTokenAsync();
         var credentials = new ConnectionCredentials(_username, accessToken);
 
         var processedChannels = await dbService.GetProcessedChannels(_channels.Select(c => c.ToLower()).ToList());
@@ -49,7 +48,7 @@ public class TwitchHost(
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
-        logger.LogInformation("Disconnecting...");
+        logger.LogInformation("Stopping application...");
 
         _twitchClient.OnMessageReceived -= OnMessageReceived;
         _twitchClient.OnIncorrectLogin -= OnIncorrectLogin;
@@ -91,9 +90,28 @@ public class TwitchHost(
         queueProvider.Queue.Enqueue(e);
     }
 
-    private void OnIncorrectLogin(object? sender, OnIncorrectLoginArgs e)
+    private async void OnIncorrectLogin(object? sender, OnIncorrectLoginArgs e)
     {
-        logger.LogError(e.Exception, "Incorrect login.");
+        try
+        {
+            logger.LogError(e.Exception, "Incorrect login. Attempting to refresh token and reconnect...");
+
+            _twitchClient.Disconnect();
+
+            using var scope = scopeFactory.CreateScope();
+            var tokenService = scope.ServiceProvider.GetRequiredService<TokenService>();
+
+            var accessToken = await tokenService.GetAccessTokenAsync(true);
+            var credentials = new ConnectionCredentials(_username, accessToken);
+
+            _twitchClient.Initialize(credentials, _twitchClient.JoinedChannels.Select(c => c.Channel).ToList());
+            _twitchClient.Connect();
+            logger.LogInformation("Reconnected successfully with a new token.");
+        }
+        catch (Exception ex)
+        {
+            logger.LogCritical(ex, "Failed to reconnect after token refresh.");
+        }
     }
 
     private void OnConnectionError(object? sender, OnConnectionErrorArgs e)

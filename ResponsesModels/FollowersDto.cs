@@ -4,6 +4,5 @@ namespace TwitchChatParser.ResponsesModels;
 
 public class FollowersDto
 {
-    [JsonPropertyName("total")]
-    public int Count { get; set; }
+    [JsonPropertyName("total")] public int Count { get; set; }
 }

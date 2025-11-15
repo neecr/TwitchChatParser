@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -9,28 +10,52 @@ namespace TwitchChatParser.HostedServices;
 public class MessageProcessingHost(
     ILogger<MessageProcessingHost> logger,
     QueueProvider queueProvider,
-    IServiceProvider serviceProvider)
-    : BackgroundService
+    IServiceProvider serviceProvider,
+    IConfiguration configuration)
+    : IHostedService
 {
-    private readonly PeriodicTimer _timer = new(TimeSpan.FromSeconds(5));
+    private readonly int _buffer =
+        int.Parse(configuration["MessageProcessingSettings:Buffer"] ??
+                  throw new InvalidOperationException("Buffer is missing in configuration."));
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    private readonly PeriodicTimer _timer =
+        new(TimeSpan.FromSeconds(int.Parse(configuration
+                                               ["MessageProcessingSettings:Interval"] ??
+                                           throw new InvalidOperationException(
+                                               "Interval is missing in configuration."))));
+
+    public Task StartAsync(CancellationToken cancellationToken)
     {
-        while (await _timer.WaitForNextTickAsync(stoppingToken))
+        Task.Run(async () =>
         {
-            if (queueProvider.Queue.IsEmpty) continue;
-
-            logger.LogInformation("Messages in queue: {Count}.", queueProvider.Queue.Count);
-
-            if (queueProvider.Queue.Count >= 500)
+            while (await _timer.WaitForNextTickAsync(cancellationToken))
             {
-                using var scope = serviceProvider.CreateScope();
-                var databaseService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
+                if (queueProvider.Queue.IsEmpty) continue;
 
-                var messagesToProcess = queueProvider.Queue.ToList();
-                await databaseService.WriteBatchAsync(messagesToProcess);
-                queueProvider.Queue.Clear();
+                logger.LogDebug("Messages in queue: {Count}.", queueProvider.Queue.Count);
+
+                if (queueProvider.Queue.Count >= _buffer)
+                {
+                    using var scope = serviceProvider.CreateScope();
+                    var databaseService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
+
+                    var messagesToProcess = queueProvider.Queue.ToList();
+                    await databaseService.WriteBatchAsync(messagesToProcess);
+                    queueProvider.Queue.Clear();
+                }
             }
-        }
+        }, cancellationToken);
+
+        return Task.CompletedTask;
+    }
+
+    public async Task StopAsync(CancellationToken cancellationToken)
+    {
+        logger.LogInformation("Finishing saving messages...");
+        using var scope = serviceProvider.CreateScope();
+        var databaseService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
+
+        var messagesToProcess = queueProvider.Queue.ToList();
+        await databaseService.WriteBatchAsync(messagesToProcess);
     }
 }

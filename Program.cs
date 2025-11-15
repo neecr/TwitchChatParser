@@ -17,13 +17,18 @@ internal class Program
     {
         try
         {
-            Log.Logger = new LoggerConfiguration()
-                .MinimumLevel.Debug()
+            var loggerConfig = new LoggerConfiguration()
                 .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)
                 .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
                 .WriteTo.Async(wt => wt.Console())
-                .WriteTo.File($"log/launch_{DateTime.Now:dd-MM-yy-HH-mm-ss}.txt")
-                .CreateLogger();
+                .WriteTo.File($"log/launch_{DateTime.Now:dd-MM-yy-HH-mm-ss}.txt");
+
+#if DEBUG
+            loggerConfig.MinimumLevel.Debug();
+#else
+            loggerConfig.MinimumLevel.Information();
+#endif
+            Log.Logger = loggerConfig.CreateLogger();
 
             Log.Information("Starting TwitchChatParser...");
 
@@ -48,8 +53,8 @@ internal class Program
 
                     services.AddHostedService<TwitchHost>();
                 }).Build();
-            
-            
+
+
             await host.RunAsync();
         }
         catch (Exception ex)
@@ -58,6 +63,7 @@ internal class Program
         }
         finally
         {
+            Log.Information("Application stopped.");
             await Log.CloseAndFlushAsync();
         }
     }

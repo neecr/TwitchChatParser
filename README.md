@@ -1,4 +1,5 @@
-﻿This program read chat messages from multiple [Twitch](https://twitch.tv) channels and stores them in a Postgres database.
+﻿This program read chat messages from multiple [Twitch](https://twitch.tv) channels and stores them in a Postgres
+database.
 
 In order to work, this program requires `appsettings.json` file with the following content:
 
@@ -11,6 +12,3 @@ In order to work, this program requires `appsettings.json` file with the followi
 "Channels": [ "<channel1>", "<channel2>", "..." ]
 }
 ```
-
-Todo list:
-1) Refresh token during program runtime
