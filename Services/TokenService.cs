@@ -10,8 +10,8 @@ namespace TwitchChatParser.Services;
 
 public class TokenService(IConfiguration configuration, DataContext dataContext, ILogger<TokenService> logger)
 {
-    private const string ValidationIrl = "https://id.twitch.tv/oauth2/validate";
-    private const string TokenUrl = "https://id.twitch.tv/oauth2/token";
+    private const string OAuthBaseUrl = "https://id.twitch.tv/oauth2";
+    private const string HelixBaseUrl = "https://api.twitch.tv/helix";
 
     private async Task ValidateAccessTokenAsync(TokenInfo tokenInfo)
     {
@@ -19,7 +19,7 @@ public class TokenService(IConfiguration configuration, DataContext dataContext,
 
         httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {tokenInfo.AccessToken}");
 
-        var response = await httpClient.GetAsync(ValidationIrl);
+        var response = await httpClient.GetAsync(OAuthBaseUrl + "/validate");
         response.EnsureSuccessStatusCode();
 
         logger.LogDebug("Token is valid.");
@@ -38,7 +38,7 @@ public class TokenService(IConfiguration configuration, DataContext dataContext,
         };
 
         var content = new FormUrlEncodedContent(parameters);
-        var response = await httpClient.PostAsync(TokenUrl, content);
+        var response = await httpClient.PostAsync(OAuthBaseUrl + "/token", content);
         response.EnsureSuccessStatusCode();
 
         var jsonResponse = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -59,7 +59,7 @@ public class TokenService(IConfiguration configuration, DataContext dataContext,
         return newToken;
     }
 
-    public async Task<string> GetAccessTokenAsync(bool forceRefresh = false)
+    public async Task<string> GetAccessTokenAsync(bool forceRefresh = false, bool checkToken = false)
     {
         var lastToken = dataContext.TokenInfos
             .OrderByDescending(t => t.CreationTime)
@@ -72,7 +72,7 @@ public class TokenService(IConfiguration configuration, DataContext dataContext,
             return refreshedToken.AccessToken;
         }
 
-        await ValidateAccessTokenAsync(lastToken);
+        if (checkToken) await ValidateAccessTokenAsync(lastToken);
         return lastToken.AccessToken;
     }
 
@@ -105,5 +105,36 @@ public class TokenService(IConfiguration configuration, DataContext dataContext,
             JsonSerializer.Deserialize<UserDataRootDto>(await response.Content.ReadAsStringAsync());
 
         return root.Data;
+    }
+
+    public async Task<FollowersDto> GetFollowersByIdAsync(string channelId)
+    {
+        var httpClient = new HttpClient();
+
+        var accessToken = await GetAccessTokenAsync();
+        var clientId = configuration["TwitchSettings:ClientId"] ??
+                       throw new InvalidOperationException("ClientId is missing.");
+
+        var uriBuilder = new UriBuilder(HelixBaseUrl + "/channels/followers");
+
+        var query = HttpUtility.ParseQueryString(uriBuilder.Query);
+
+        query.Add("broadcaster_id", channelId);
+        uriBuilder.Query = query.ToString();
+        var finalUrl = uriBuilder.ToString();
+
+        var request = new HttpRequestMessage(HttpMethod.Get, finalUrl);
+
+        request.Headers.Add("Client-Id", clientId);
+        request.Headers.Add("Authorization", $"Bearer {accessToken}");
+
+        var response = await httpClient.SendAsync(request);
+        
+        response.EnsureSuccessStatusCode();
+
+        var root =
+            JsonSerializer.Deserialize<FollowersDto>(await response.Content.ReadAsStringAsync());
+
+        return root;
     }
 }

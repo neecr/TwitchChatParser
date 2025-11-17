@@ -87,7 +87,28 @@ public class TwitchHost(
 
     private void OnMessageReceived(object? sender, OnMessageReceivedArgs e)
     {
+        if (e.ChatMessage.Username is "fossabot" or "streamelements")
+        {
+            return;
+        }
+        
         queueProvider.Queue.Enqueue(e);
+
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(500);
+            
+            using var scope = scopeFactory.CreateScope();
+            var tokenService = scope.ServiceProvider.GetRequiredService<TokenService>();
+            
+            var followersCount = (await tokenService.GetFollowersByIdAsync(e.ChatMessage.UserId)).Count;
+
+            if (followersCount >= 10000)
+            {
+                logger.LogInformation("{username} has {followerCount} followers.",
+                    e.ChatMessage.Username, followersCount);
+            }
+        });
     }
 
     private async void OnIncorrectLogin(object? sender, OnIncorrectLoginArgs e)
