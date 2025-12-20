@@ -23,6 +23,8 @@ public class MessageProcessingHost(
                                                ["MessageProcessingSettings:Interval"] ??
                                            throw new InvalidOperationException(
                                                "Interval is missing in configuration."))));
+    
+    private int _counter;
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
@@ -31,9 +33,13 @@ public class MessageProcessingHost(
             while (await _timer.WaitForNextTickAsync(cancellationToken))
             {
                 if (queueProvider.Queue.IsEmpty) continue;
-
-                logger.LogDebug("Messages in queue: {Count}.", queueProvider.Queue.Count);
-
+                
+                if (_counter != queueProvider.Queue.Count)
+                {
+                   logger.LogDebug("Messages in queue: {Count}.", queueProvider.Queue.Count); 
+                   _counter = queueProvider.Queue.Count;
+                }
+                
                 if (queueProvider.Queue.Count >= _buffer)
                 {
                     using var scope = serviceProvider.CreateScope();
@@ -52,10 +58,14 @@ public class MessageProcessingHost(
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         logger.LogInformation("Finishing saving messages...");
-        using var scope = serviceProvider.CreateScope();
-        var databaseService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
 
-        var messagesToProcess = queueProvider.Queue.ToList();
-        await databaseService.WriteBatchAsync(messagesToProcess);
+        if (!queueProvider.Queue.IsEmpty)
+        {
+            using var scope = serviceProvider.CreateScope();
+            var databaseService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
+
+            var messagesToProcess = queueProvider.Queue.ToList();
+            await databaseService.WriteBatchAsync(messagesToProcess);
+        }
     }
 }

@@ -102,7 +102,8 @@ public class TokenService(IConfiguration configuration, DataContext dataContext,
         response.EnsureSuccessStatusCode();
 
         var root =
-            JsonSerializer.Deserialize<UserDataRootDto>(await response.Content.ReadAsStringAsync());
+            JsonSerializer.Deserialize<UserDataRootDto>(await response.Content.ReadAsStringAsync())
+            ?? throw  new InvalidOperationException("Got null user data response.");
 
         return root.Data;
     }
@@ -133,7 +134,8 @@ public class TokenService(IConfiguration configuration, DataContext dataContext,
         response.EnsureSuccessStatusCode();
 
         var root =
-            JsonSerializer.Deserialize<FollowersDto>(await response.Content.ReadAsStringAsync());
+            JsonSerializer.Deserialize<FollowersDto>(await response.Content.ReadAsStringAsync())
+            ?? throw  new InvalidOperationException("Got null followers response.");
 
         return root;
     }

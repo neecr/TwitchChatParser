@@ -4,5 +4,5 @@ namespace TwitchChatParser.ResponsesModels;
 
 public record UserDataRootDto
 {
-    [JsonPropertyName("data")] public List<UserDataDto> Data { get; set; }
+    [JsonPropertyName("data")] public required List<UserDataDto> Data { get; set; }
 }

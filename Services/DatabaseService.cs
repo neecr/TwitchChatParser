@@ -10,7 +10,7 @@ public class DatabaseService(DataContext dbContext, ILogger<DatabaseService> log
 {
     public async Task WriteBatchAsync(IReadOnlyCollection<OnMessageReceivedArgs> messages)
     {
-        logger.LogInformation("Starting writing {Count} messages to database...", messages.Count);
+        logger.LogDebug("Starting saving {Count} messages...", messages.Count);
 
         try
         {
@@ -75,14 +75,14 @@ public class DatabaseService(DataContext dbContext, ILogger<DatabaseService> log
                 UserId = m.ChatMessage.UserId,
                 ChannelId = m.ChatMessage.RoomId,
                 MessageText = m.ChatMessage.Message.Trim(),
-                CreationTime = DateTime.UtcNow
+                CreationTime = DateTimeOffset.FromUnixTimeMilliseconds(long.Parse(m.ChatMessage.TmiSentTs)).UtcDateTime
             });
             await dbContext.Messages.AddRangeAsync(messageModels);
 
             await dbContext.SaveChangesAsync();
             await transaction.CommitAsync();
 
-            logger.LogInformation("Finished writing {Count} messages to database.", messages.Count);
+            logger.LogInformation("Saved {Count} messages.", messages.Count);
         }
         catch (Exception ex)
         {
