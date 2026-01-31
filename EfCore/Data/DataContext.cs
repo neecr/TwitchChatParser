@@ -19,6 +19,7 @@ public class DataContext : DbContext
     public DbSet<Ban> Bans { get; set; }
     public DbSet<Channel> Channels { get; set; }
     public DbSet<TokenInfo> TokenInfos { get; set; }
+    public DbSet<FollowersInfo> FollowersInfos { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -82,6 +83,16 @@ public class DataContext : DbContext
             entity.HasOne(e => e.Channel)
                 .WithMany()
                 .HasForeignKey(e => e.ChannelId)
+                .IsRequired();
+        });
+
+        modelBuilder.Entity<FollowersInfo>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
                 .IsRequired();
         });
     }

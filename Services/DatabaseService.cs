@@ -2,11 +2,16 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using TwitchChatParser.EfCore.Data;
 using TwitchChatParser.EfCore.Models;
+using TwitchChatParser.Utils;
 using TwitchLib.Client.Events;
 
 namespace TwitchChatParser.Services;
 
-public class DatabaseService(DataContext dbContext, ILogger<DatabaseService> logger, TokenService tokenService)
+public class DatabaseService(
+    DataContext dbContext,
+    ILogger<DatabaseService> logger,
+    TokenService tokenService,
+    FollowersUpdateQueue followersQueue)
 {
     public async Task WriteBatchAsync(IReadOnlyCollection<OnMessageReceivedArgs> messages)
     {
@@ -75,7 +80,7 @@ public class DatabaseService(DataContext dbContext, ILogger<DatabaseService> log
                 UserId = m.ChatMessage.UserId,
                 ChannelId = m.ChatMessage.RoomId,
                 MessageText = m.ChatMessage.Message.Trim(),
-                CreationTime = DateTimeOffset.FromUnixTimeMilliseconds(long.Parse(m.ChatMessage.TmiSentTs)).UtcDateTime
+                CreationTime = m.ChatMessage.TmiSent.UtcDateTime
             });
             await dbContext.Messages.AddRangeAsync(messageModels);
 
@@ -83,6 +88,9 @@ public class DatabaseService(DataContext dbContext, ILogger<DatabaseService> log
             await transaction.CommitAsync();
 
             logger.LogInformation("Saved {Count} messages.", messages.Count);
+
+            // Отправляем ID пользователей в очередь для фонового обновления фолловеров
+            followersQueue.Enqueue(userIds);
         }
         catch (Exception ex)
         {
@@ -135,7 +143,7 @@ public class DatabaseService(DataContext dbContext, ILogger<DatabaseService> log
         return processedNames;
     }
 
-    public async Task AddBanAsync(string userId, string username, string channelId, string banReason)
+    public async Task AddBanAsync(string userId, string username, string channelId)
     {
         if (!await dbContext.Users.AnyAsync(u => u.Id == userId))
             dbContext.Users.Add(new User
@@ -150,7 +158,7 @@ public class DatabaseService(DataContext dbContext, ILogger<DatabaseService> log
             Id = Guid.NewGuid(),
             UserId = userId,
             ChannelId = channelId,
-            BanReason = banReason,
+            BanReason = null,
             CreationTime = DateTime.UtcNow
         });
 

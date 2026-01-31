@@ -23,7 +23,7 @@ public class MessageProcessingHost(
                                                ["MessageProcessingSettings:Interval"] ??
                                            throw new InvalidOperationException(
                                                "Interval is missing in configuration."))));
-    
+
     private int _counter;
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -33,13 +33,13 @@ public class MessageProcessingHost(
             while (await _timer.WaitForNextTickAsync(cancellationToken))
             {
                 if (queueProvider.Queue.IsEmpty) continue;
-                
+
                 if (_counter != queueProvider.Queue.Count)
                 {
-                   logger.LogDebug("Messages in queue: {Count}.", queueProvider.Queue.Count); 
-                   _counter = queueProvider.Queue.Count;
+                    logger.LogDebug("Messages in queue: {Count}.", queueProvider.Queue.Count);
+                    _counter = queueProvider.Queue.Count;
                 }
-                
+
                 if (queueProvider.Queue.Count >= _buffer)
                 {
                     using var scope = serviceProvider.CreateScope();

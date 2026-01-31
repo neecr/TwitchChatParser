@@ -8,18 +8,21 @@ using TwitchChatParser.ResponsesModels;
 
 namespace TwitchChatParser.Services;
 
-public class TokenService(IConfiguration configuration, DataContext dataContext, ILogger<TokenService> logger)
+public class TokenService(
+    HttpClient httpClient,
+    IConfiguration configuration,
+    DataContext dataContext,
+    ILogger<TokenService> logger)
 {
     private const string OAuthBaseUrl = "https://id.twitch.tv/oauth2";
     private const string HelixBaseUrl = "https://api.twitch.tv/helix";
 
     private async Task ValidateAccessTokenAsync(TokenInfo tokenInfo)
     {
-        var httpClient = new HttpClient();
+        var request = new HttpRequestMessage(HttpMethod.Get, OAuthBaseUrl + "/validate");
+        request.Headers.Add("Authorization", $"Bearer {tokenInfo.AccessToken}");
 
-        httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {tokenInfo.AccessToken}");
-
-        var response = await httpClient.GetAsync(OAuthBaseUrl + "/validate");
+        var response = await httpClient.SendAsync(request);
         response.EnsureSuccessStatusCode();
 
         logger.LogDebug("Token is valid.");
@@ -27,8 +30,6 @@ public class TokenService(IConfiguration configuration, DataContext dataContext,
 
     private async Task<TokenInfo> RefreshAccessTokenAsync(string refreshToken, DataContext dbContext)
     {
-        var httpClient = new HttpClient();
-
         var parameters = new Dictionary<string, string>
         {
             { "client_id", configuration["TwitchSettings:ClientId"]! },
@@ -78,8 +79,6 @@ public class TokenService(IConfiguration configuration, DataContext dataContext,
 
     public async Task<List<UserDataDto>> GetUserDataByUsernameAsync(List<string> channels)
     {
-        var httpClient = new HttpClient();
-
         var accessToken = await GetAccessTokenAsync();
         var clientId = configuration["TwitchSettings:ClientId"] ??
                        throw new InvalidOperationException("ClientId is missing.");
@@ -103,15 +102,13 @@ public class TokenService(IConfiguration configuration, DataContext dataContext,
 
         var root =
             JsonSerializer.Deserialize<UserDataRootDto>(await response.Content.ReadAsStringAsync())
-            ?? throw  new InvalidOperationException("Got null user data response.");
+            ?? throw new InvalidOperationException("Got null user data response.");
 
         return root.Data;
     }
 
     public async Task<FollowersDto> GetFollowersByIdAsync(string channelId)
     {
-        var httpClient = new HttpClient();
-
         var accessToken = await GetAccessTokenAsync();
         var clientId = configuration["TwitchSettings:ClientId"] ??
                        throw new InvalidOperationException("ClientId is missing.");
@@ -130,12 +127,12 @@ public class TokenService(IConfiguration configuration, DataContext dataContext,
         request.Headers.Add("Authorization", $"Bearer {accessToken}");
 
         var response = await httpClient.SendAsync(request);
-        
+
         response.EnsureSuccessStatusCode();
 
         var root =
             JsonSerializer.Deserialize<FollowersDto>(await response.Content.ReadAsStringAsync())
-            ?? throw  new InvalidOperationException("Got null followers response.");
+            ?? throw new InvalidOperationException("Got null followers response.");
 
         return root;
     }
