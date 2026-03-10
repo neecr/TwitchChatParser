@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -10,20 +11,25 @@ using TwitchChatParser.Utils;
 namespace TwitchChatParser.HostedServices;
 
 public class FollowersUpdateHostedService(
-    FollowersUpdateQueue queue,
+    FollowersQueue queue,
     IServiceScopeFactory scopeFactory,
-    ILogger<FollowersUpdateHostedService> logger) : BackgroundService
+    ILogger<FollowersUpdateHostedService> logger,
+    IConfiguration configuration) : BackgroundService
 {
+    private readonly int followersInfoLifetime = Convert.ToInt32(configuration["MessageProcessingSettings:FollowersInfoLifetime"] ??
+                                                                 throw new InvalidOperationException(
+                                                                     "FollowersInfoLifetime is missing."));
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        logger.LogInformation("FollowersUpdateHostedService started.");
+        logger.LogDebug("FollowersUpdateHostedService started.");
 
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                var userIds = await queue.Reader.ReadAsync(stoppingToken);
-                
+                var userIds = await queue.ReadAsync(stoppingToken);
+
                 await ProcessUserIdsAsync(userIds);
             }
             catch (OperationCanceledException)
@@ -37,7 +43,30 @@ public class FollowersUpdateHostedService(
             }
         }
 
-        logger.LogInformation("FollowersUpdateHostedService stopped.");
+        logger.LogDebug("FollowersUpdateHostedService stopped.");
+    }
+
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        logger.LogDebug("Finishing updating followers...");
+
+        // Пытаемся вычитать все оставшиеся элементы из очереди
+        while (queue.TryRead(out var userIds))
+        {
+            try
+            {
+                if (userIds != null)
+                {
+                    await ProcessUserIdsAsync(userIds);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error processing remaining followers updates during shutdown.");
+            }
+        }
+
+        await base.StopAsync(cancellationToken);
     }
 
     private async Task ProcessUserIdsAsync(List<string> userIds)
@@ -48,13 +77,13 @@ public class FollowersUpdateHostedService(
         {
             using var scope = scopeFactory.CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<DataContext>();
-            var tokenService = scope.ServiceProvider.GetRequiredService<TokenService>();
-            
-            var oneHourAgo = DateTime.UtcNow.AddDays(-1);
+            var twitchApiService = scope.ServiceProvider.GetRequiredService<TwitchApiService>();
+
+            var expirationTime = DateTime.UtcNow.AddHours(-followersInfoLifetime);
 
             // 1. Находим пользователей, у которых ЕСТЬ запись за последний час.
             var usersWithRecentUpdates = await dbContext.FollowersInfos
-                .Where(f => userIds.Contains(f.UserId) && f.CreationTime > oneHourAgo)
+                .Where(f => userIds.Contains(f.UserId) && f.CreationTime > expirationTime)
                 .Select(f => f.UserId)
                 .Distinct()
                 .ToListAsync();
@@ -64,13 +93,13 @@ public class FollowersUpdateHostedService(
 
             if (usersToUpdate.Count == 0) return;
 
-            logger.LogInformation("Updating followers for {Count} users...", usersToUpdate.Count);
+            logger.LogDebug("Updating followers for {Count} users...", usersToUpdate.Count);
 
             foreach (var userId in usersToUpdate)
             {
                 try
                 {
-                    var followersDto = await tokenService.GetFollowersByIdAsync(userId);
+                    var followersDto = await twitchApiService.GetFollowersByIdAsync(userId);
 
                     dbContext.FollowersInfos.Add(new FollowersInfo
                     {
@@ -85,9 +114,9 @@ public class FollowersUpdateHostedService(
                     logger.LogError(ex, "Failed to fetch followers count for user {UserId}", userId);
                 }
             }
-            
+
             await dbContext.SaveChangesAsync();
-            logger.LogInformation("Done updating followers.");
+            logger.LogInformation("Done updating {Count} followers.", usersToUpdate.Count);
         }
         catch (Exception ex)
         {

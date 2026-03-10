@@ -10,8 +10,8 @@ namespace TwitchChatParser.Services;
 public class DatabaseService(
     DataContext dbContext,
     ILogger<DatabaseService> logger,
-    TokenService tokenService,
-    FollowersUpdateQueue followersQueue)
+    TwitchApiService twitchApiService,
+    FollowersQueue followersQueue)
 {
     public async Task WriteBatchAsync(IReadOnlyCollection<OnMessageReceivedArgs> messages)
     {
@@ -110,7 +110,7 @@ public class DatabaseService(
 
         if (candidatesForApiLookup.Count == 0) return processedNames;
 
-        var newChannelsUserData = await tokenService.GetUserDataByUsernameAsync(candidatesForApiLookup);
+        var newChannelsUserData = await twitchApiService.GetUserDataByUsernameAsync(candidatesForApiLookup);
 
         var foundNamesByApi = newChannelsUserData
             .Select(userData => userData.DisplayName)
@@ -143,24 +143,38 @@ public class DatabaseService(
         return processedNames;
     }
 
-    public async Task AddBanAsync(string userId, string username, string channelId)
+    public async Task AddBanAsync(string userId, string username, string channelName)
     {
         if (!await dbContext.Users.AnyAsync(u => u.Id == userId))
+        {
             dbContext.Users.Add(new User
             {
                 Id = userId,
                 Username = username,
                 CreationTime = DateTime.UtcNow
             });
+        }
 
-        dbContext.Bans.Add(new Ban
+        var channel = await dbContext.Channels.FirstOrDefaultAsync(c => c.Name == channelName);
+
+        if (channel == null)
+        {
+            logger.LogWarning("Channel {channel} doesn't exist.", channelName);
+            return;
+        }
+
+        var ban = new Ban
         {
             Id = Guid.NewGuid(),
             UserId = userId,
-            ChannelId = channelId,
+            ChannelId = channel.Id,
             BanReason = null,
             CreationTime = DateTime.UtcNow
-        });
+        };
+
+        dbContext.Bans.Add(ban);
+
+        logger.LogInformation("{UserUsername} was banned in {ChannelName}.", ban.User?.Username, ban.Channel?.Name);
 
         await dbContext.SaveChangesAsync();
     }

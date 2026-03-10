@@ -45,21 +45,25 @@ internal class Program
                     var connectionString = hostContext.Configuration["ConnectionStrings:Debug"] ??
                                            throw new InvalidOperationException(
                                                "Debug ConnectionString is missing in configuration.");
+                    Log.Information("Configuration: DEBUG");
 #else
                     var connectionString = hostContext.Configuration["ConnectionStrings:Release"] ??
                                            throw new InvalidOperationException(
                                                "Release ConnectionString is missing in configuration.");
+                    Log.Information("Configuration: RELEASE");
 #endif
 
                     services.AddDbContext<DataContext>(options => options.UseNpgsql(connectionString));
 
-                    services.AddSingleton<FollowersUpdateQueue>();
-                    services.AddSingleton<QueueProvider>();
-                    
+                    services.AddSingleton<FollowersQueue>();
+                    services.AddSingleton<MessageQueue>();
+
                     services.AddScoped<DatabaseService>();
-                    services.AddScoped<TokenService>();
-                    
-                    services.AddHttpClient<TokenService>();
+                    services.AddScoped<TwitchTokenService>();
+                    services.AddScoped<TwitchApiService>();
+
+                    services.AddHttpClient<TwitchTokenService>();
+                    services.AddHttpClient<TwitchApiService>();
 
                     services.AddHostedService<MessageProcessingHost>();
                     services.AddHostedService<FollowersUpdateHostedService>();

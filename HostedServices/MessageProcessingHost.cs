@@ -9,7 +9,7 @@ namespace TwitchChatParser.HostedServices;
 
 public class MessageProcessingHost(
     ILogger<MessageProcessingHost> logger,
-    QueueProvider queueProvider,
+    MessageQueue messageQueue,
     IServiceProvider serviceProvider,
     IConfiguration configuration)
     : IHostedService
@@ -32,22 +32,22 @@ public class MessageProcessingHost(
         {
             while (await _timer.WaitForNextTickAsync(cancellationToken))
             {
-                if (queueProvider.Queue.IsEmpty) continue;
+                if (messageQueue.Queue.IsEmpty) continue;
 
-                if (_counter != queueProvider.Queue.Count)
+                if (_counter != messageQueue.Queue.Count)
                 {
-                    logger.LogDebug("Messages in queue: {Count}.", queueProvider.Queue.Count);
-                    _counter = queueProvider.Queue.Count;
+                    logger.LogDebug("Messages in queue: {Count}.", messageQueue.Queue.Count);
+                    _counter = messageQueue.Queue.Count;
                 }
 
-                if (queueProvider.Queue.Count >= _buffer)
+                if (messageQueue.Queue.Count >= _buffer)
                 {
                     using var scope = serviceProvider.CreateScope();
                     var databaseService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
 
-                    var messagesToProcess = queueProvider.Queue.ToList();
+                    var messagesToProcess = messageQueue.Queue.ToList();
                     await databaseService.WriteBatchAsync(messagesToProcess);
-                    queueProvider.Queue.Clear();
+                    messageQueue.Queue.Clear();
                 }
             }
         }, cancellationToken);
@@ -59,12 +59,12 @@ public class MessageProcessingHost(
     {
         logger.LogInformation("Finishing saving messages...");
 
-        if (!queueProvider.Queue.IsEmpty)
+        if (!messageQueue.Queue.IsEmpty)
         {
             using var scope = serviceProvider.CreateScope();
             var databaseService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
 
-            var messagesToProcess = queueProvider.Queue.ToList();
+            var messagesToProcess = messageQueue.Queue.ToList();
             await databaseService.WriteBatchAsync(messagesToProcess);
         }
     }
