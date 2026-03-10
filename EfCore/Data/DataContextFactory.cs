@@ -15,7 +15,12 @@ public class DataContextFactory : IDesignTimeDbContextFactory<DataContext>
 
         var optionsBuilder = new DbContextOptionsBuilder<DataContext>();
 
-        optionsBuilder.UseNpgsql(config["ConnectionString"]);
+#if DEBUG
+        optionsBuilder.UseNpgsql(config["ConnectionStrings:Debug"]);
+#else
+        optionsBuilder.UseNpgsql(config["ConnectionStrings:Release"]);
+#endif
+
         return new DataContext(optionsBuilder.Options);
     }
 }

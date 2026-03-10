@@ -20,8 +20,12 @@ internal class Program
             var loggerConfig = new LoggerConfiguration()
                 .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)
                 .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
-                .WriteTo.Async(wt => wt.Console())
-                .WriteTo.File($"log/launch_{DateTime.Now:dd-MM-yy-HH-mm-ss}.txt");
+                .MinimumLevel.Override("System.Net.Http", LogEventLevel.Warning)
+                .WriteTo.Async(wt =>
+                    wt.Console(
+                        outputTemplate: "[{Timestamp:dd-MM-yy HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}"))
+                .WriteTo.File($"log/launch_{DateTime.Now:dd-MM-yy-HH-mm-ss}.txt",
+                    outputTemplate: "[Timestamp:dd-MM-yy HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}");
 
 #if DEBUG
             loggerConfig.MinimumLevel.Debug();
@@ -37,23 +41,34 @@ internal class Program
                 .ConfigureAppConfiguration((_, config) => { config.AddJsonFile("appsettings.json"); })
                 .ConfigureServices((hostContext, services) =>
                 {
-                    var connectionString = hostContext.Configuration["ConnectionString"] ??
+#if DEBUG
+                    var connectionString = hostContext.Configuration["ConnectionStrings:Debug"] ??
                                            throw new InvalidOperationException(
-                                               "ConnectionString is missing in configuration.");
+                                               "Debug ConnectionString is missing in configuration.");
+                    Log.Information("Configuration: DEBUG");
+#else
+                    var connectionString = hostContext.Configuration["ConnectionStrings:Release"] ??
+                                           throw new InvalidOperationException(
+                                               "Release ConnectionString is missing in configuration.");
+                    Log.Information("Configuration: RELEASE");
+#endif
 
                     services.AddDbContext<DataContext>(options => options.UseNpgsql(connectionString));
 
-
-                    services.AddSingleton<QueueProvider>();
+                    services.AddSingleton<FollowersQueue>();
+                    services.AddSingleton<MessageQueue>();
 
                     services.AddScoped<DatabaseService>();
-                    services.AddScoped<TokenService>();
+                    services.AddScoped<TwitchTokenService>();
+                    services.AddScoped<TwitchApiService>();
+
+                    services.AddHttpClient<TwitchTokenService>();
+                    services.AddHttpClient<TwitchApiService>();
 
                     services.AddHostedService<MessageProcessingHost>();
-
+                    services.AddHostedService<FollowersUpdateHostedService>();
                     services.AddHostedService<TwitchHost>();
                 }).Build();
-
 
             await host.RunAsync();
         }

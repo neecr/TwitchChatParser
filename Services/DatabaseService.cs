@@ -2,15 +2,20 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using TwitchChatParser.EfCore.Data;
 using TwitchChatParser.EfCore.Models;
+using TwitchChatParser.Utils;
 using TwitchLib.Client.Events;
 
 namespace TwitchChatParser.Services;
 
-public class DatabaseService(DataContext dbContext, ILogger<DatabaseService> logger, TokenService tokenService)
+public class DatabaseService(
+    DataContext dbContext,
+    ILogger<DatabaseService> logger,
+    TwitchApiService twitchApiService,
+    FollowersQueue followersQueue)
 {
     public async Task WriteBatchAsync(IReadOnlyCollection<OnMessageReceivedArgs> messages)
     {
-        logger.LogInformation("Starting writing {Count} messages to database...", messages.Count);
+        logger.LogDebug("Starting saving {Count} messages...", messages.Count);
 
         try
         {
@@ -75,14 +80,17 @@ public class DatabaseService(DataContext dbContext, ILogger<DatabaseService> log
                 UserId = m.ChatMessage.UserId,
                 ChannelId = m.ChatMessage.RoomId,
                 MessageText = m.ChatMessage.Message.Trim(),
-                CreationTime = DateTime.UtcNow
+                CreationTime = m.ChatMessage.TmiSent.UtcDateTime
             });
             await dbContext.Messages.AddRangeAsync(messageModels);
 
             await dbContext.SaveChangesAsync();
             await transaction.CommitAsync();
 
-            logger.LogInformation("Finished writing {Count} messages to database.", messages.Count);
+            logger.LogInformation("Saved {Count} messages.", messages.Count);
+
+            // Отправляем ID пользователей в очередь для фонового обновления фолловеров
+            followersQueue.Enqueue(userIds);
         }
         catch (Exception ex)
         {
@@ -102,7 +110,7 @@ public class DatabaseService(DataContext dbContext, ILogger<DatabaseService> log
 
         if (candidatesForApiLookup.Count == 0) return processedNames;
 
-        var newChannelsUserData = await tokenService.GetUserDataByUsernameAsync(candidatesForApiLookup);
+        var newChannelsUserData = await twitchApiService.GetUserDataByUsernameAsync(candidatesForApiLookup);
 
         var foundNamesByApi = newChannelsUserData
             .Select(userData => userData.DisplayName)
@@ -135,24 +143,38 @@ public class DatabaseService(DataContext dbContext, ILogger<DatabaseService> log
         return processedNames;
     }
 
-    public async Task AddBanAsync(string userId, string username, string channelId, string banReason)
+    public async Task AddBanAsync(string userId, string username, string channelName)
     {
         if (!await dbContext.Users.AnyAsync(u => u.Id == userId))
+        {
             dbContext.Users.Add(new User
             {
                 Id = userId,
                 Username = username,
                 CreationTime = DateTime.UtcNow
             });
+        }
 
-        dbContext.Bans.Add(new Ban
+        var channel = await dbContext.Channels.FirstOrDefaultAsync(c => c.Name == channelName);
+
+        if (channel == null)
+        {
+            logger.LogWarning("Channel {channel} doesn't exist.", channelName);
+            return;
+        }
+
+        var ban = new Ban
         {
             Id = Guid.NewGuid(),
             UserId = userId,
-            ChannelId = channelId,
-            BanReason = banReason,
+            ChannelId = channel.Id,
+            BanReason = null,
             CreationTime = DateTime.UtcNow
-        });
+        };
+
+        dbContext.Bans.Add(ban);
+
+        logger.LogInformation("{UserUsername} was banned in {ChannelName}.", ban.User?.Username, ban.Channel?.Name);
 
         await dbContext.SaveChangesAsync();
     }

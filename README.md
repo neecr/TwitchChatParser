@@ -5,10 +5,19 @@ In order to work, this program requires `appsettings.json` file with the followi
 
 ```json
 {
-"ClientSecret": "<your Twitch account secret>",
-"ClientId": "<your Twitch account id>",
-"Username": "<your Twitch account username>",
-"ConnectionString": "Host=<DB url>;Port=<DB port>;Database=<DB name>;Username=<DB username>;Password=<DB password>;",
-"Channels": [ "<channel1>", "<channel2>", "..." ]
+  "TwitchSettings": {
+    "ClientSecret": "",
+    "ClientId": "",
+    "Username": "",
+    "Channels": [
+      "",
+      ""
+    ]
+  },
+  "ConnectionString": "",
+  "MessageProcessingSettings": {
+    "Interval": 1,
+    "Buffer": 1
+  }
 }
 ```

@@ -3,7 +3,7 @@ using TwitchLib.Client.Events;
 
 namespace TwitchChatParser.Utils;
 
-public class QueueProvider
+public class MessageQueue
 {
     public ConcurrentQueue<OnMessageReceivedArgs> Queue { get; } = new();
 }

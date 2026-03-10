@@ -1,25 +1,25 @@
 using System.Text.Json;
-using System.Web;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using TwitchChatParser.EfCore.Data;
 using TwitchChatParser.EfCore.Models;
-using TwitchChatParser.ResponsesModels;
 
 namespace TwitchChatParser.Services;
 
-public class TokenService(IConfiguration configuration, DataContext dataContext, ILogger<TokenService> logger)
+public class TwitchTokenService(
+    HttpClient httpClient,
+    IConfiguration configuration,
+    DataContext dataContext,
+    ILogger<TwitchTokenService> logger)
 {
-    private const string ValidationIrl = "https://id.twitch.tv/oauth2/validate";
-    private const string TokenUrl = "https://id.twitch.tv/oauth2/token";
+    private const string OAuthBaseUrl = "https://id.twitch.tv/oauth2";
 
     private async Task ValidateAccessTokenAsync(TokenInfo tokenInfo)
     {
-        var httpClient = new HttpClient();
+        var request = new HttpRequestMessage(HttpMethod.Get, OAuthBaseUrl + "/validate");
+        request.Headers.Add("Authorization", $"Bearer {tokenInfo.AccessToken}");
 
-        httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {tokenInfo.AccessToken}");
-
-        var response = await httpClient.GetAsync(ValidationIrl);
+        var response = await httpClient.SendAsync(request);
         response.EnsureSuccessStatusCode();
 
         logger.LogDebug("Token is valid.");
@@ -27,8 +27,6 @@ public class TokenService(IConfiguration configuration, DataContext dataContext,
 
     private async Task<TokenInfo> RefreshAccessTokenAsync(string refreshToken, DataContext dbContext)
     {
-        var httpClient = new HttpClient();
-
         var parameters = new Dictionary<string, string>
         {
             { "client_id", configuration["TwitchSettings:ClientId"]! },
@@ -38,7 +36,7 @@ public class TokenService(IConfiguration configuration, DataContext dataContext,
         };
 
         var content = new FormUrlEncodedContent(parameters);
-        var response = await httpClient.PostAsync(TokenUrl, content);
+        var response = await httpClient.PostAsync(OAuthBaseUrl + "/token", content);
         response.EnsureSuccessStatusCode();
 
         var jsonResponse = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -59,7 +57,7 @@ public class TokenService(IConfiguration configuration, DataContext dataContext,
         return newToken;
     }
 
-    public async Task<string> GetAccessTokenAsync(bool forceRefresh = false)
+    public async Task<string> GetAccessTokenAsync(bool forceRefresh = false, bool checkToken = false)
     {
         var lastToken = dataContext.TokenInfos
             .OrderByDescending(t => t.CreationTime)
@@ -72,38 +70,7 @@ public class TokenService(IConfiguration configuration, DataContext dataContext,
             return refreshedToken.AccessToken;
         }
 
-        await ValidateAccessTokenAsync(lastToken);
+        if (checkToken) await ValidateAccessTokenAsync(lastToken);
         return lastToken.AccessToken;
-    }
-
-    public async Task<List<UserDataDto>> GetUserDataByUsernameAsync(List<string> channels)
-    {
-        var httpClient = new HttpClient();
-
-        var accessToken = await GetAccessTokenAsync();
-        var clientId = configuration["TwitchSettings:ClientId"] ??
-                       throw new InvalidOperationException("ClientId is missing.");
-
-        var uriBuilder = new UriBuilder("https://api.twitch.tv/helix/users");
-
-        var query = HttpUtility.ParseQueryString(uriBuilder.Query);
-
-        foreach (var channel in channels) query.Add("login", channel);
-        uriBuilder.Query = query.ToString();
-        var finalUrl = uriBuilder.ToString();
-
-        var request = new HttpRequestMessage(HttpMethod.Get, finalUrl);
-
-        request.Headers.Add("Client-Id", clientId);
-        request.Headers.Add("Authorization", $"Bearer {accessToken}");
-
-        var response = await httpClient.SendAsync(request);
-
-        response.EnsureSuccessStatusCode();
-
-        var root =
-            JsonSerializer.Deserialize<UserDataRootDto>(await response.Content.ReadAsStringAsync());
-
-        return root.Data;
     }
 }

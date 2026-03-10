@@ -9,7 +9,7 @@ namespace TwitchChatParser.HostedServices;
 
 public class MessageProcessingHost(
     ILogger<MessageProcessingHost> logger,
-    QueueProvider queueProvider,
+    MessageQueue messageQueue,
     IServiceProvider serviceProvider,
     IConfiguration configuration)
     : IHostedService
@@ -24,24 +24,30 @@ public class MessageProcessingHost(
                                            throw new InvalidOperationException(
                                                "Interval is missing in configuration."))));
 
+    private int _counter;
+
     public Task StartAsync(CancellationToken cancellationToken)
     {
         Task.Run(async () =>
         {
             while (await _timer.WaitForNextTickAsync(cancellationToken))
             {
-                if (queueProvider.Queue.IsEmpty) continue;
+                if (messageQueue.Queue.IsEmpty) continue;
 
-                logger.LogDebug("Messages in queue: {Count}.", queueProvider.Queue.Count);
+                if (_counter != messageQueue.Queue.Count)
+                {
+                    logger.LogDebug("Messages in queue: {Count}.", messageQueue.Queue.Count);
+                    _counter = messageQueue.Queue.Count;
+                }
 
-                if (queueProvider.Queue.Count >= _buffer)
+                if (messageQueue.Queue.Count >= _buffer)
                 {
                     using var scope = serviceProvider.CreateScope();
                     var databaseService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
 
-                    var messagesToProcess = queueProvider.Queue.ToList();
+                    var messagesToProcess = messageQueue.Queue.ToList();
                     await databaseService.WriteBatchAsync(messagesToProcess);
-                    queueProvider.Queue.Clear();
+                    messageQueue.Queue.Clear();
                 }
             }
         }, cancellationToken);
@@ -52,10 +58,14 @@ public class MessageProcessingHost(
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         logger.LogInformation("Finishing saving messages...");
-        using var scope = serviceProvider.CreateScope();
-        var databaseService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
 
-        var messagesToProcess = queueProvider.Queue.ToList();
-        await databaseService.WriteBatchAsync(messagesToProcess);
+        if (!messageQueue.Queue.IsEmpty)
+        {
+            using var scope = serviceProvider.CreateScope();
+            var databaseService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
+
+            var messagesToProcess = messageQueue.Queue.ToList();
+            await databaseService.WriteBatchAsync(messagesToProcess);
+        }
     }
 }

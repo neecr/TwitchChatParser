@@ -14,7 +14,7 @@ public class TwitchHost(
     IConfiguration config,
     IServiceScopeFactory scopeFactory,
     ILogger<TwitchHost> logger,
-    QueueProvider queueProvider) : IHostedService
+    MessageQueue messageQueue) : IHostedService
 {
     private readonly List<string> _channels = config.GetSection("TwitchSettings:Channels").Get<List<string>>() ??
                                               throw new InvalidOperationException("Channels is missing in secrets.");
@@ -24,60 +24,111 @@ public class TwitchHost(
     private readonly string _username = config["TwitchSettings:Username"] ??
                                         throw new InvalidOperationException("Username is missing in secrets.");
 
+    private bool _isReconnecting;
+
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        using var scope = scopeFactory.CreateScope();
-        var tokenService = scope.ServiceProvider.GetRequiredService<TokenService>();
-        var dbService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
-
-        var accessToken = await tokenService.GetAccessTokenAsync();
-        var credentials = new ConnectionCredentials(_username, accessToken);
-
-        var processedChannels = await dbService.GetProcessedChannels(_channels.Select(c => c.ToLower()).ToList());
-
-        _twitchClient.Initialize(credentials, processedChannels);
-
         _twitchClient.OnMessageReceived += OnMessageReceived;
         _twitchClient.OnIncorrectLogin += OnIncorrectLogin;
         _twitchClient.OnConnectionError += OnConnectionError;
         _twitchClient.OnUserBanned += OnUserBanned;
+        _twitchClient.OnConnected += OnConnected;
 
-        _twitchClient.Connect();
-        logger.LogInformation("Connected to {channels}.", string.Join(", ", processedChannels));
+        await ConnectAsync(false);
     }
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
         logger.LogInformation("Stopping application...");
-
+        
         _twitchClient.OnMessageReceived -= OnMessageReceived;
         _twitchClient.OnIncorrectLogin -= OnIncorrectLogin;
         _twitchClient.OnConnectionError -= OnConnectionError;
         _twitchClient.OnUserBanned -= OnUserBanned;
+        _twitchClient.OnConnected -= OnConnected;
 
-        if (_twitchClient is not { IsInitialized: true, IsConnected: true })
+        if (_twitchClient is { IsInitialized: true, IsConnected: true })
         {
-            logger.LogWarning("Client was not connected or initialized.");
-            return Task.CompletedTask;
+            _twitchClient.DisconnectAsync();
         }
-
-        _twitchClient.Disconnect();
 
         return Task.CompletedTask;
     }
 
-    private async void OnUserBanned(object? sender, OnUserBannedArgs e)
+    private Task OnConnected(object? sender, OnConnectedEventArgs e)
+    {
+        logger.LogInformation("Connected to Twitch.");
+        return Task.CompletedTask;
+    }
+
+    private async Task ConnectAsync(bool forceRefresh)
+    {
+        if (_isReconnecting) return;
+        _isReconnecting = true;
+
+        try
+        {
+            if (_twitchClient.IsConnected)
+            {
+                logger.LogInformation("Disconnecting before reconnecting...");
+                await _twitchClient.DisconnectAsync();
+            }
+
+            using var scope = scopeFactory.CreateScope();
+            var tokenService = scope.ServiceProvider.GetRequiredService<TwitchTokenService>();
+            var dbService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
+
+            logger.LogInformation(forceRefresh ? "Refreshing access token..." : "Getting access token...");
+            
+            var accessToken = await tokenService.GetAccessTokenAsync(forceRefresh);
+            
+            var credentials = new ConnectionCredentials(_username, accessToken);
+
+            List<string> channelsToJoin;
+            if (_twitchClient.JoinedChannels.Count > 0)
+            {
+                channelsToJoin = _twitchClient.JoinedChannels.Select(c => c.Channel).ToList();
+            }
+            else
+            {
+                channelsToJoin = await dbService.GetProcessedChannels(_channels.Select(c => c.ToLower()).ToList());
+            }
+
+            logger.LogInformation("Initializing client...");
+            _twitchClient.Initialize(credentials, channelsToJoin);
+
+            if (await _twitchClient.ConnectAsync())
+            {
+                logger.LogInformation("Connected successfully.");
+            }
+            else
+            {
+                logger.LogError("Connection failed.");
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error during connection attempt. Retrying in 10 seconds...");
+            await Task.Delay(10000);
+            _isReconnecting = false; 
+            await ConnectAsync(forceRefresh); 
+        }
+        finally
+        {
+            _isReconnecting = false;
+        }
+    }
+    private async Task OnUserBanned(object? sender, OnUserBannedArgs e)
     {
         try
         {
             using var scope = scopeFactory.CreateScope();
             var dbService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
 
-            await dbService.AddBanAsync(e.UserBan.TargetUserId, e.UserBan.Username, e.UserBan.RoomId,
-                e.UserBan.BanReason);
+            await dbService.AddBanAsync(e.UserBan.TargetUserId, e.UserBan.Username, e.UserBan.Channel);
 
-            logger.LogInformation("User '{UserBanUsername}' was banned in '{UserBanChannel}' for {UserBanBanReason}.",
-                e.UserBan.Username, e.UserBan.Channel, e.UserBan.BanReason);
+            logger.LogInformation("User '{UserBanUsername}' was banned in '{UserBanChannel}'",
+                e.UserBan.Username, e.UserBan.Channel);
         }
         catch (Exception ex)
         {
@@ -85,37 +136,23 @@ public class TwitchHost(
         }
     }
 
-    private void OnMessageReceived(object? sender, OnMessageReceivedArgs e)
+    private Task OnMessageReceived(object? sender, OnMessageReceivedArgs e)
     {
-        queueProvider.Queue.Enqueue(e);
+        messageQueue.Queue.Enqueue(e);
+        return Task.CompletedTask;
     }
 
-    private async void OnIncorrectLogin(object? sender, OnIncorrectLoginArgs e)
+    private async Task OnIncorrectLogin(object? sender, OnIncorrectLoginArgs e)
     {
-        try
-        {
-            logger.LogError(e.Exception, "Incorrect login. Attempting to refresh token and reconnect...");
-
-            _twitchClient.Disconnect();
-
-            using var scope = scopeFactory.CreateScope();
-            var tokenService = scope.ServiceProvider.GetRequiredService<TokenService>();
-
-            var accessToken = await tokenService.GetAccessTokenAsync(true);
-            var credentials = new ConnectionCredentials(_username, accessToken);
-
-            _twitchClient.Initialize(credentials, _twitchClient.JoinedChannels.Select(c => c.Channel).ToList());
-            _twitchClient.Connect();
-            logger.LogInformation("Reconnected successfully with a new token.");
-        }
-        catch (Exception ex)
-        {
-            logger.LogCritical(ex, "Failed to reconnect after token refresh.");
-        }
+        logger.LogWarning(e.Exception, "Incorrect login detected. Reconnecting with new token...");
+        await Task.Delay(5000);
+        _ = ConnectAsync(forceRefresh: true);
     }
 
-    private void OnConnectionError(object? sender, OnConnectionErrorArgs e)
+    private async Task OnConnectionError(object? sender, OnConnectionErrorArgs e)
     {
-        logger.LogError(e.Error.Message, "Connection error.");
+        logger.LogError("Connection error: {Message}. Reconnecting...", e.Error.Message);
+        await Task.Delay(5000);
+        _ = ConnectAsync(forceRefresh: true);
     }
 }
