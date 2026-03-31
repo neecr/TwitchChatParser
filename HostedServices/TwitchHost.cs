@@ -57,7 +57,7 @@ public class TwitchHost(
 
     private Task OnConnected(object? sender, OnConnectedEventArgs e)
     {
-        logger.LogInformation("Connected to Twitch.");
+        logger.LogDebug("Connected to Twitch.");
         return Task.CompletedTask;
     }
 
@@ -66,52 +66,64 @@ public class TwitchHost(
         if (_isReconnecting) return;
         _isReconnecting = true;
 
+        int delay = 10000;
+        
         try
         {
-            if (_twitchClient.IsConnected)
+            while (true)
             {
-                logger.LogInformation("Disconnecting before reconnecting...");
-                await _twitchClient.DisconnectAsync();
-            }
+                try
+                {
+                    if (_twitchClient.IsConnected)
+                    {
+                        logger.LogInformation("Disconnecting before reconnecting...");
+                        await _twitchClient.DisconnectAsync();
+                    }
 
-            using var scope = scopeFactory.CreateScope();
-            var tokenService = scope.ServiceProvider.GetRequiredService<TwitchTokenService>();
-            var dbService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
+                    using var scope = scopeFactory.CreateScope();
+                    var tokenService = scope.ServiceProvider.GetRequiredService<TwitchTokenService>();
+                    var dbService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
 
-            logger.LogInformation(forceRefresh ? "Refreshing access token..." : "Getting access token...");
-            
-            var accessToken = await tokenService.GetAccessTokenAsync(forceRefresh);
-            
-            var credentials = new ConnectionCredentials(_username, accessToken);
+                    logger.LogInformation(forceRefresh ? "Refreshing access token..." : "Getting access token...");
+                        
+                    var accessToken = await tokenService.GetAccessTokenAsync(forceRefresh);
+                        
+                    var credentials = new ConnectionCredentials(_username, accessToken);
 
-            List<string> channelsToJoin;
-            if (_twitchClient.JoinedChannels.Count > 0)
-            {
-                channelsToJoin = _twitchClient.JoinedChannels.Select(c => c.Channel).ToList();
-            }
-            else
-            {
-                channelsToJoin = await dbService.GetProcessedChannels(_channels.Select(c => c.ToLower()).ToList());
-            }
+                    List<string> channelsToJoin;
+                    if (_twitchClient.JoinedChannels.Any())
+                    {
+                        channelsToJoin = _twitchClient.JoinedChannels.Select(c => c.Channel).ToList();
+                    }
+                    else
+                    {
+                        channelsToJoin = await dbService.GetProcessedChannels(_channels.Select(c => c.ToLower()).ToList());
+                    }
 
-            logger.LogInformation("Initializing client...");
-            _twitchClient.Initialize(credentials, channelsToJoin);
+                    logger.LogDebug("Initializing client...");
+                    _twitchClient.Initialize(credentials, channelsToJoin);
 
-            if (await _twitchClient.ConnectAsync())
-            {
-                logger.LogInformation("Connected successfully.");
+                    if (await _twitchClient.ConnectAsync())
+                    {
+                        logger.LogInformation("Connected successfully to {ChannelsToJoin}.", string.Join(", ", channelsToJoin));
+                        return; 
+                    }
+                    else
+                    {
+                        logger.LogError("Connection failed. Retrying in {Delay} seconds...", delay / 1000);
+                        await Task.Delay(delay);
+                        delay *= 2;
+                        forceRefresh = true; 
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Error during connection attempt. Retrying in {Delay} seconds...", delay / 1000);
+                    await Task.Delay(delay);
+                    delay *= 2;
+                    forceRefresh = true; 
+                }
             }
-            else
-            {
-                logger.LogError("Connection failed.");
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Error during connection attempt. Retrying in 10 seconds...");
-            await Task.Delay(10000);
-            _isReconnecting = false; 
-            await ConnectAsync(forceRefresh); 
         }
         finally
         {
@@ -146,13 +158,13 @@ public class TwitchHost(
     {
         logger.LogWarning(e.Exception, "Incorrect login detected. Reconnecting with new token...");
         await Task.Delay(5000);
-        _ = ConnectAsync(forceRefresh: true);
+        await ConnectAsync(forceRefresh: true);
     }
 
     private async Task OnConnectionError(object? sender, OnConnectionErrorArgs e)
     {
         logger.LogError("Connection error: {Message}. Reconnecting...", e.Error.Message);
         await Task.Delay(5000);
-        _ = ConnectAsync(forceRefresh: true);
+        await ConnectAsync(forceRefresh: true);
     }
 }
