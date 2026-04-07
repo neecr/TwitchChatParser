@@ -16,15 +16,13 @@ public class TwitchTokenService(
 {
     private const string OAuthBaseUrl = "https://id.twitch.tv/oauth2";
 
-    private async Task ValidateAccessTokenAsync(TokenInfo tokenInfo)
+    private async Task<bool> ValidateAccessTokenAsync(TokenInfo tokenInfo)
     {
         var request = new HttpRequestMessage(HttpMethod.Get, OAuthBaseUrl + "/validate");
         request.Headers.Add("Authorization", $"Bearer {tokenInfo.AccessToken}");
 
         var response = await httpClient.SendAsync(request);
-        response.EnsureSuccessStatusCode();
-
-        logger.LogDebug("Token is valid.");
+        return response.IsSuccessStatusCode;
     }
 
     private async Task<TokenInfo> RefreshAccessTokenAsync(string refreshToken, DataContext dbContext)
@@ -60,7 +58,7 @@ public class TwitchTokenService(
         return newToken;
     }
 
-    public async Task<string> GetAccessTokenAsync(bool forceRefresh = false, bool checkToken = false)
+    public async Task<string> GetAccessTokenAsync(bool forceRefresh = false)
     {
         var lastToken = dataContext.TokenInfos
             .OrderByDescending(t => t.CreationTime)
@@ -91,7 +89,13 @@ public class TwitchTokenService(
             return refreshedToken.AccessToken;
         }
 
-        if (checkToken) await ValidateAccessTokenAsync(lastToken);
+        if (!await ValidateAccessTokenAsync(lastToken))
+        {
+            logger.LogInformation("Access token is invalid. Refreshing...");
+            var refreshedToken = await RefreshAccessTokenAsync(lastToken.RefreshToken, dataContext);
+            return refreshedToken.AccessToken;
+        }
+        
         return lastToken.AccessToken;
     }
 
