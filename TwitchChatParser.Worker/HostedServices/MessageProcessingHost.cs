@@ -4,6 +4,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using TwitchChatParser.Application.Utils;
 using TwitchChatParser.Infrastructure.Services;
+using TwitchLib.Client.Events;
 
 namespace TwitchChatParser.Worker.HostedServices;
 
@@ -12,7 +13,7 @@ public class MessageProcessingHost(
     MessageQueue messageQueue,
     IServiceProvider serviceProvider,
     IConfiguration configuration)
-    : IHostedService
+    : BackgroundService
 {
     private readonly int _buffer =
         int.Parse(configuration["MessageProcessingSettings:Buffer"] ??
@@ -26,46 +27,75 @@ public class MessageProcessingHost(
 
     private int _counter;
 
-    public Task StartAsync(CancellationToken cancellationToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        Task.Run(async () =>
-        {
-            while (await _timer.WaitForNextTickAsync(cancellationToken))
-            {
-                if (messageQueue.Queue.IsEmpty) continue;
+        logger.LogDebug("MessageProcessingHost started.");
 
-                if (_counter != messageQueue.Queue.Count)
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                await _timer.WaitForNextTickAsync(stoppingToken);
+
+                if (messageQueue.Count == 0) continue;
+
+                if (_counter != messageQueue.Count)
                 {
-                    logger.LogDebug("Messages in queue: {Count}.", messageQueue.Queue.Count);
-                    _counter = messageQueue.Queue.Count;
+                    logger.LogDebug("Messages in queue: {Count}.", messageQueue.Count);
+                    _counter = messageQueue.Count;
                 }
 
-                if (messageQueue.Queue.Count >= _buffer)
+                if (messageQueue.Count >= _buffer)
                 {
                     using var scope = serviceProvider.CreateScope();
                     var databaseService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
 
-                    var messagesToProcess = messageQueue.Queue.ToList();
-                    await databaseService.WriteBatchAsync(messagesToProcess);
-                    messageQueue.Queue.Clear();
+                    var messagesToProcess = new List<OnMessageReceivedArgs>();
+                    while (messageQueue.TryRead(out var message) && messagesToProcess.Count < _buffer)
+                    {
+                        messagesToProcess.Add(message);
+                    }
+
+                    if (messagesToProcess.Count > 0)
+                    {
+                        await databaseService.WriteBatchAsync(messagesToProcess);
+                    }
                 }
             }
-        }, cancellationToken);
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error processing message queue.");
+            }
+        }
 
-        return Task.CompletedTask;
+        logger.LogDebug("MessageProcessingHost stopped.");
     }
 
-    public async Task StopAsync(CancellationToken cancellationToken)
+    public override async Task StopAsync(CancellationToken cancellationToken)
     {
         logger.LogInformation("Finishing saving messages...");
 
-        if (!messageQueue.Queue.IsEmpty)
+        if (messageQueue.Count > 0)
         {
             using var scope = serviceProvider.CreateScope();
             var databaseService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
 
-            var messagesToProcess = messageQueue.Queue.ToList();
-            await databaseService.WriteBatchAsync(messagesToProcess);
+            var messagesToProcess = new List<OnMessageReceivedArgs>();
+            while (messageQueue.TryRead(out var message))
+            {
+                messagesToProcess.Add(message);
+            }
+
+            if (messagesToProcess.Count > 0)
+            {
+                await databaseService.WriteBatchAsync(messagesToProcess);
+            }
         }
+
+        await base.StopAsync(cancellationToken);
     }
 }

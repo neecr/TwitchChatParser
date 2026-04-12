@@ -150,7 +150,7 @@ public class TwitchHost(
 
     private Task OnMessageReceived(object? sender, OnMessageReceivedArgs e)
     {
-        messageQueue.Queue.Enqueue(e);
+        messageQueue.Enqueue(e);
         return Task.CompletedTask;
     }
 
