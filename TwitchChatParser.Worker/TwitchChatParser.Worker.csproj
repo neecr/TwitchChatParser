@@ -10,11 +10,15 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.2"/>
-        <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.2"/>
-        <PackageReference Include="Npgsql" Version="10.0.1"/>
-        <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0"/>
-        <PackageReference Include="Serilog" Version="4.3.0"/>
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.6">
+          <PrivateAssets>all</PrivateAssets>
+          <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.6" />
+        <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.6" />
+        <PackageReference Include="Npgsql" Version="10.0.2" />
+        <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.1" />
+        <PackageReference Include="Serilog" Version="4.3.1" />
         <PackageReference Include="Serilog.Extensions.Hosting" Version="10.0.0"/>
         <PackageReference Include="Serilog.Sinks.Async" Version="2.1.0"/>
         <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1"/>
@@ -27,13 +31,7 @@
             <CopyToOutputDirectory>Always</CopyToOutputDirectory>
         </Content>
     </ItemGroup>
-
-    <ItemGroup>
-        <Compile Update="EfCore\Migrations\**">
-            <NoWarn>$(NoWarn);8981;8618;8600;8601;8602;8603;8604;8625</NoWarn>
-        </Compile>
-    </ItemGroup>
-
+    
     <ItemGroup>
       <ProjectReference Include="..\TwitchChatParser.Application\TwitchChatParser.Application.csproj" />
       <ProjectReference Include="..\TwitchChatParser.Infrastructure\TwitchChatParser.Infrastructure.csproj" />
