@@ -2,14 +2,14 @@ using System.Text.Json.Serialization;
 
 namespace TwitchChatParser.Domain.ResponsesModels;
 
-public class TwitchTokenResponseDto
+public record TwitchTokenResponseDto
 {
     [JsonPropertyName("access_token")]
-    public string AccessToken { get; set; } = null!;
+    public required string AccessToken { get; init; }
 
     [JsonPropertyName("refresh_token")]
-    public string RefreshToken { get; set; } = null!;
+    public required string RefreshToken { get; init; } 
 
     [JsonPropertyName("expires_in")]
-    public int ExpiresIn { get; set; }
+    public required int ExpiresIn { get; init; }
 }
