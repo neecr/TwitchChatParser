@@ -38,7 +38,6 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<FollowersQueue>();
         services.AddSingleton<MessageQueue>();
 
-        services.AddScoped<DatabaseService>();
         services.AddScoped<TwitchTokenService>();
         services.AddScoped<TwitchApiService>();
 

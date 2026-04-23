@@ -2,7 +2,10 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using TwitchChatParser.Application.Extensions;
 using TwitchChatParser.Application.Utils;
+using TwitchChatParser.Infrastructure.Repositories;
+using TwitchChatParser.Infrastructure.Repositories.Interfaces;
 using TwitchChatParser.Infrastructure.Services;
 using TwitchLib.Client;
 using TwitchLib.Client.Events;
@@ -82,7 +85,7 @@ public class TwitchHost(
 
                     using var scope = scopeFactory.CreateScope();
                     var tokenService = scope.ServiceProvider.GetRequiredService<TwitchTokenService>();
-                    var dbService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
+                    var channelRepository = scope.ServiceProvider.GetRequiredService<IChannelRepository>();
 
                     logger.LogInformation(forceRefresh ? "Refreshing access token..." : "Getting access token...");
                         
@@ -97,7 +100,7 @@ public class TwitchHost(
                     }
                     else
                     {
-                        channelsToJoin = await dbService.GetProcessedChannels(_channels.Select(c => c.ToLower()).ToList());
+                        channelsToJoin = await channelRepository.GetProcessedChannelsAsync(_channels.Select(c => c.ToLower()).ToList());
                     }
 
                     logger.LogDebug("Initializing client...");
@@ -135,9 +138,9 @@ public class TwitchHost(
         try
         {
             using var scope = scopeFactory.CreateScope();
-            var dbService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
-
-            await dbService.AddBanAsync(e.UserBan.TargetUserId, e.UserBan.Username, e.UserBan.Channel);
+            var banRepository = scope.ServiceProvider.GetRequiredService<BanRepository>();
+            
+            await banRepository.AddAsync(e.UserBan.ToBan(), e.UserBan.Username);
 
             logger.LogInformation("User '{UserBanUsername}' was banned in '{UserBanChannel}'",
                 e.UserBan.Username, e.UserBan.Channel);

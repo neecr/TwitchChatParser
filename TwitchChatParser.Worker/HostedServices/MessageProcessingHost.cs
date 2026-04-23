@@ -3,7 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using TwitchChatParser.Application.Utils;
-using TwitchChatParser.Infrastructure.Services;
+using TwitchChatParser.Infrastructure.Repositories.Interfaces;
 using TwitchLib.Client.Events;
 
 namespace TwitchChatParser.Worker.HostedServices;
@@ -48,7 +48,7 @@ public class MessageProcessingHost(
                 if (messageQueue.Count >= _buffer)
                 {
                     using var scope = serviceProvider.CreateScope();
-                    var databaseService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
+                    var messageRepository = scope.ServiceProvider.GetRequiredService<IMessageRepository>();
 
                     var messagesToProcess = new List<OnMessageReceivedArgs>();
                     while (messageQueue.TryRead(out var message) && messagesToProcess.Count < _buffer)
@@ -58,7 +58,7 @@ public class MessageProcessingHost(
 
                     if (messagesToProcess.Count > 0)
                     {
-                        await databaseService.WriteBatchAsync(messagesToProcess);
+                        await messageRepository.WriteBatchAsync(messagesToProcess);
                     }
                 }
             }
@@ -82,7 +82,7 @@ public class MessageProcessingHost(
         if (messageQueue.Count > 0)
         {
             using var scope = serviceProvider.CreateScope();
-            var databaseService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
+            var messageRepository = scope.ServiceProvider.GetRequiredService<IMessageRepository>();
 
             var messagesToProcess = new List<OnMessageReceivedArgs>();
             while (messageQueue.TryRead(out var message))
@@ -92,7 +92,7 @@ public class MessageProcessingHost(
 
             if (messagesToProcess.Count > 0)
             {
-                await databaseService.WriteBatchAsync(messagesToProcess);
+                await messageRepository.WriteBatchAsync(messagesToProcess);
             }
         }
 
