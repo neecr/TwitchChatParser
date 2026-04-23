@@ -2,7 +2,7 @@
 
 namespace TwitchChatParser.Domain.ResponsesModels;
 
-public class FollowersDto
+public record FollowersDto
 {
-    [JsonPropertyName("total")] public int Count { get; set; }
+    [JsonPropertyName("total")] public int Count { get; init; }
 }
