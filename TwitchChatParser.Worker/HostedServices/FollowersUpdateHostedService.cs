@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -14,8 +15,7 @@ public class FollowersUpdateHostedService(
     FollowersQueue queue,
     ILogger<FollowersUpdateHostedService> logger,
     IOptions<MessageProcessingSettings> messageProcessingSettingsOptions,
-    IFollowersInfoRepository followersInfoRepository,
-    TwitchApiService twitchApiService) : BackgroundService
+    IServiceScopeFactory scopeFactory) : BackgroundService
 {
     private readonly int followersInfoLifetime = messageProcessingSettingsOptions.Value.FollowersInfoLifetime;
 
@@ -65,6 +65,10 @@ public class FollowersUpdateHostedService(
 
         try
         {
+            using var scope = scopeFactory.CreateScope();
+            var followersInfoRepository = scope.ServiceProvider.GetRequiredService<IFollowersInfoRepository>();
+            var twitchApiService = scope.ServiceProvider.GetRequiredService<TwitchApiService>();
+
             var expirationTime = DateTime.UtcNow.AddHours(-followersInfoLifetime);
 
             var usersWithRecentUpdates =

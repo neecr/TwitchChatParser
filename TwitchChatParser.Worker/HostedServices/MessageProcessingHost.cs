@@ -47,7 +47,12 @@ public class MessageProcessingHost(
 
                     var messagesToProcess = new List<OnMessageReceivedArgs>();
                     while (messageQueue.TryRead(out var message) && messagesToProcess.Count < _buffer)
-                        messagesToProcess.Add(message);
+                    {
+                        if (message != null)
+                        {
+                            messagesToProcess.Add(message);
+                        }
+                    }
 
                     if (messagesToProcess.Count > 0) await messageRepository.WriteBatchAsync(messagesToProcess);
                 }
@@ -74,7 +79,13 @@ public class MessageProcessingHost(
             var messageRepository = scope.ServiceProvider.GetRequiredService<IMessageRepository>();
 
             var messagesToProcess = new List<OnMessageReceivedArgs>();
-            while (messageQueue.TryRead(out var message)) messagesToProcess.Add(message);
+            while (messageQueue.TryRead(out var message))
+            {
+                if (message != null)
+                {
+                    messagesToProcess.Add(message);
+                }
+            }
 
             if (messagesToProcess.Count > 0) await messageRepository.WriteBatchAsync(messagesToProcess);
         }

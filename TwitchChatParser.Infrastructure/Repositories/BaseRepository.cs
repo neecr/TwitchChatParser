@@ -4,11 +4,17 @@ using TwitchChatParser.Infrastructure.Repositories.Interfaces;
 
 namespace TwitchChatParser.Infrastructure.Repositories;
 
-public abstract class BaseRepository<TEntity, TKey>(DataContext context) : IRepository<TEntity, TKey>
+public abstract class BaseRepository<TEntity, TKey> : IRepository<TEntity, TKey>
     where TEntity : class
 {
-    protected readonly DataContext _context = context;
-    protected readonly DbSet<TEntity> _dbSet = context.Set<TEntity>();
+    protected readonly DataContext _context;
+    protected readonly DbSet<TEntity> _dbSet;
+
+    protected BaseRepository(DataContext context)
+    {
+        _context = context;
+        _dbSet = context.Set<TEntity>();
+    }
 
     public virtual async Task<TEntity?> GetByIdAsync(TKey id, CancellationToken cancellationToken = default)
     {
@@ -47,6 +53,6 @@ public abstract class BaseRepository<TEntity, TKey>(DataContext context) : IRepo
 
     public virtual async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
-        return await context.SaveChangesAsync(cancellationToken);
+        return await _context.SaveChangesAsync(cancellationToken);
     }
 }

@@ -10,7 +10,7 @@ public class FollowersInfoRepository(DataContext context)
 {
     public async Task<List<string>> GetUsersWithRecentUpdates(DateTime expirationTime, List<string> userIds)
     {
-        return await context.FollowersInfos
+        return await _dbSet
             .Where(f => userIds.Contains(f.UserId) && f.CreationTime > expirationTime)
             .Select(f => f.UserId)
             .Distinct()
