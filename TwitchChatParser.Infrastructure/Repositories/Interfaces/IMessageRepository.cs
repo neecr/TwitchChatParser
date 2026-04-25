@@ -5,5 +5,6 @@ namespace TwitchChatParser.Infrastructure.Repositories.Interfaces;
 
 public interface IMessageRepository : IRepository<Message, string>
 {
-    Task WriteBatchAsync(IReadOnlyCollection<OnMessageReceivedArgs> messages, CancellationToken cancellationToken = default);
+    Task WriteBatchAsync(IReadOnlyCollection<OnMessageReceivedArgs> messages,
+        CancellationToken cancellationToken = default);
 }

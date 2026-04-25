@@ -7,7 +7,11 @@
     </PropertyGroup>
 
     <ItemGroup>
-      <PackageReference Include="TwitchLib.Client" Version="4.0.1" />
+        <PackageReference Include="TwitchLib.Client" Version="4.0.1"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\TwitchChatParser.Domain\TwitchChatParser.Domain.csproj"/>
     </ItemGroup>
 
 </Project>

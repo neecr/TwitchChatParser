@@ -1,8 +1,9 @@
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using TwitchChatParser.Application.Utils;
+using TwitchChatParser.Domain.Configuration;
 using TwitchChatParser.Infrastructure.Repositories.Interfaces;
 using TwitchLib.Client.Events;
 
@@ -12,18 +13,13 @@ public class MessageProcessingHost(
     ILogger<MessageProcessingHost> logger,
     MessageQueue messageQueue,
     IServiceProvider serviceProvider,
-    IConfiguration configuration)
+    IOptions<MessageProcessingSettings> messageProcessingSettingsOptions)
     : BackgroundService
 {
-    private readonly int _buffer =
-        int.Parse(configuration["MessageProcessingSettings:Buffer"] ??
-                  throw new InvalidOperationException("Buffer is missing in configuration."));
+    private readonly int _buffer = messageProcessingSettingsOptions.Value.Buffer;
 
     private readonly PeriodicTimer _timer =
-        new(TimeSpan.FromSeconds(int.Parse(configuration
-                                               ["MessageProcessingSettings:Interval"] ??
-                                           throw new InvalidOperationException(
-                                               "Interval is missing in configuration."))));
+        new(TimeSpan.FromSeconds(messageProcessingSettingsOptions.Value.Interval));
 
     private int _counter;
 
@@ -32,7 +28,6 @@ public class MessageProcessingHost(
         logger.LogDebug("MessageProcessingHost started.");
 
         while (!stoppingToken.IsCancellationRequested)
-        {
             try
             {
                 await _timer.WaitForNextTickAsync(stoppingToken);
@@ -52,14 +47,9 @@ public class MessageProcessingHost(
 
                     var messagesToProcess = new List<OnMessageReceivedArgs>();
                     while (messageQueue.TryRead(out var message) && messagesToProcess.Count < _buffer)
-                    {
                         messagesToProcess.Add(message);
-                    }
 
-                    if (messagesToProcess.Count > 0)
-                    {
-                        await messageRepository.WriteBatchAsync(messagesToProcess);
-                    }
+                    if (messagesToProcess.Count > 0) await messageRepository.WriteBatchAsync(messagesToProcess);
                 }
             }
             catch (OperationCanceledException)
@@ -70,7 +60,6 @@ public class MessageProcessingHost(
             {
                 logger.LogError(ex, "Error processing message queue.");
             }
-        }
 
         logger.LogDebug("MessageProcessingHost stopped.");
     }
@@ -85,15 +74,9 @@ public class MessageProcessingHost(
             var messageRepository = scope.ServiceProvider.GetRequiredService<IMessageRepository>();
 
             var messagesToProcess = new List<OnMessageReceivedArgs>();
-            while (messageQueue.TryRead(out var message))
-            {
-                messagesToProcess.Add(message);
-            }
+            while (messageQueue.TryRead(out var message)) messagesToProcess.Add(message);
 
-            if (messagesToProcess.Count > 0)
-            {
-                await messageRepository.WriteBatchAsync(messagesToProcess);
-            }
+            if (messagesToProcess.Count > 0) await messageRepository.WriteBatchAsync(messagesToProcess);
         }
 
         await base.StopAsync(cancellationToken);

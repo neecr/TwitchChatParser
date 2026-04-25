@@ -11,10 +11,7 @@ public class FollowersQueue
 
     public void Enqueue(List<string> userIds)
     {
-        if (_queue.Writer.TryWrite(userIds))
-        {
-            Interlocked.Increment(ref _count);
-        }
+        if (_queue.Writer.TryWrite(userIds)) Interlocked.Increment(ref _count);
     }
 
     public async ValueTask<List<string>> ReadAsync(CancellationToken cancellationToken)

@@ -42,10 +42,7 @@ public abstract class BaseRepository<TEntity, TKey>(DataContext context) : IRepo
     public virtual async Task DeleteAsync(TKey id, CancellationToken cancellationToken = default)
     {
         var entity = await GetByIdAsync(id, cancellationToken);
-        if (entity != null)
-        {
-            _dbSet.Remove(entity);
-        }
+        if (entity != null) _dbSet.Remove(entity);
     }
 
     public virtual async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)

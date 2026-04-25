@@ -10,7 +10,7 @@ public class BanRepository(DataContext context, IUserRepository userRepository)
     public async Task<Ban> AddAsync(Ban entity, string username, CancellationToken cancellationToken = default)
     {
         var user = await userRepository.GetByIdAsync(entity.UserId, cancellationToken);
-    
+
         if (user == null)
         {
             user = new User
@@ -19,7 +19,7 @@ public class BanRepository(DataContext context, IUserRepository userRepository)
                 Username = username,
                 CreationTime = DateTime.UtcNow
             };
-        
+
             await userRepository.AddAsync(user, cancellationToken);
             await userRepository.SaveChangesAsync(cancellationToken);
         }

@@ -12,10 +12,7 @@ public class MessageQueue
 
     public void Enqueue(OnMessageReceivedArgs message)
     {
-        if (_queue.Writer.TryWrite(message))
-        {
-            Interlocked.Increment(ref _count);
-        }
+        if (_queue.Writer.TryWrite(message)) Interlocked.Increment(ref _count);
     }
 
     public bool TryRead(out OnMessageReceivedArgs? message)

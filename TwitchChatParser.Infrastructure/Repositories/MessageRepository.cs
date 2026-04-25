@@ -13,14 +13,15 @@ public class MessageRepository(
     ILogger<MessageRepository> logger,
     FollowersQueue followersQueue) : BaseRepository<Message, string>(context), IMessageRepository
 {
-    public async Task WriteBatchAsync(IReadOnlyCollection<OnMessageReceivedArgs> messages, CancellationToken cancellationToken = default)
+    public async Task WriteBatchAsync(IReadOnlyCollection<OnMessageReceivedArgs> messages,
+        CancellationToken cancellationToken = default)
     {
         logger.LogDebug("Starting saving {Count} messages...", messages.Count);
 
         try
         {
             await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
-            
+
             var uniqueUsers = messages
                 .Select(m => m.ChatMessage)
                 .DistinctBy(m => m.UserId)
@@ -42,7 +43,7 @@ public class MessageRepository(
                     CreationTime = DateTime.UtcNow
                 });
             await _context.Users.AddRangeAsync(newUsers, cancellationToken);
-            
+
             var uniqueRelations = messages
                 .Select(m => new { m.ChatMessage.UserId, m.ChatMessage.RoomId })
                 .Distinct();
@@ -64,7 +65,7 @@ public class MessageRepository(
                     CreationTime = DateTime.UtcNow
                 });
             await _context.ChannelUserRelations.AddRangeAsync(newRelations, cancellationToken);
-            
+
             var messageIds = messages.Select(m => m.ChatMessage.Id).ToList();
             var existingMessageIds = (await _dbSet
                     .Where(m => messageIds.Contains(m.Id))
@@ -88,7 +89,7 @@ public class MessageRepository(
             await transaction.CommitAsync(cancellationToken);
 
             logger.LogInformation("Saved {Count} messages.", messages.Count);
-            
+
             followersQueue.Enqueue(userIds);
         }
         catch (Exception ex)

@@ -12,7 +12,8 @@ public class ChannelRepository(
     ILogger<ChannelRepository> logger,
     TwitchApiService twitchApiService) : BaseRepository<Channel, string>(context), IChannelRepository
 {
-    public async Task<List<string>> GetProcessedChannelsAsync(List<string> channelsNames, CancellationToken cancellationToken = default)
+    public async Task<List<string>> GetProcessedChannelsAsync(List<string> channelsNames,
+        CancellationToken cancellationToken = default)
     {
         var existingChannelNames = await _dbSet
             .Where(c => channelsNames.Contains(c.Name))
@@ -35,7 +36,7 @@ public class ChannelRepository(
             .ToList();
 
         if (nonExistentNames.Count > 0)
-            foreach (var name in nonExistentNames)
+            foreach (string name in nonExistentNames)
                 logger.LogWarning("Channel {channel} doesn't exist.", name);
 
         var channelsToAdd = newChannelsUserData

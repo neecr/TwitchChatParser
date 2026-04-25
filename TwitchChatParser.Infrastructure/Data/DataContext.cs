@@ -72,7 +72,7 @@ public class DataContext : DbContext
         modelBuilder.Entity<Ban>(entity =>
         {
             entity.HasKey(e => e.Id);
-            
+
             entity.HasOne(e => e.User)
                 .WithMany()
                 .HasForeignKey(e => e.UserId)

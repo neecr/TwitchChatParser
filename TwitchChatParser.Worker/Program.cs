@@ -13,10 +13,7 @@ isDebug = true;
 try
 {
     var host = Host.CreateDefaultBuilder()
-        .UseSerilog((_, loggerConfig) =>
-        {
-            LoggerSetup.Configure(loggerConfig, isDebug);
-        })
+        .UseSerilog((_, loggerConfig) => { LoggerSetup.Configure(loggerConfig, isDebug); })
         .ConfigureAppConfiguration((_, config) => { config.AddJsonFile("appsettings.json"); })
         .ConfigureServices((hostContext, services) => { services.AddApplicationServices(hostContext); }).Build();
 
