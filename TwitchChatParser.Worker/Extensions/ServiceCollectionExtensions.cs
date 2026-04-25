@@ -6,6 +6,8 @@ using Microsoft.Extensions.Hosting;
 using Serilog;
 using TwitchChatParser.Application.Utils;
 using TwitchChatParser.Infrastructure.Data;
+using TwitchChatParser.Infrastructure.Repositories;
+using TwitchChatParser.Infrastructure.Repositories.Interfaces;
 using TwitchChatParser.Infrastructure.Services;
 using TwitchChatParser.Worker.HostedServices;
 
@@ -38,6 +40,13 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<FollowersQueue>();
         services.AddSingleton<MessageQueue>();
 
+        services.AddScoped<IUserRepository, UserRepository>();
+        services.AddScoped<IMessageRepository, MessageRepository>();
+        services.AddScoped<IChannelRepository, ChannelRepository>();
+        services.AddScoped<IBanRepository, BanRepository>();
+        services.AddScoped<IFollowersInfoRepository, FollowersInfoRepository>();
+        services.AddScoped<IChannelUserRelationRepository, ChannelUserRelationRepository>();
+
         services.AddScoped<TwitchTokenService>();
         services.AddScoped<TwitchApiService>();
 
@@ -47,7 +56,8 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<MessageProcessingHost>();
         services.AddHostedService<FollowersUpdateHostedService>();
         services.AddHostedService<TwitchHost>();
-
+        
+        
         return services;
     }
 }

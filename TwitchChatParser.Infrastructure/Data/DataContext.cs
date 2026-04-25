@@ -72,9 +72,7 @@ public class DataContext : DbContext
         modelBuilder.Entity<Ban>(entity =>
         {
             entity.HasKey(e => e.Id);
-
-            entity.Property(e => e.BanReason).HasMaxLength(500);
-
+            
             entity.HasOne(e => e.User)
                 .WithMany()
                 .HasForeignKey(e => e.UserId)
