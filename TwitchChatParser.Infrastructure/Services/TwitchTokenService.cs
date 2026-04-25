@@ -1,36 +1,45 @@
 using System.Text.Json;
 using System.Web;
-using Microsoft.Extensions.Configuration;
+using System.Net.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using TwitchChatParser.Domain.Configuration;
 using TwitchChatParser.Domain.Models;
 using TwitchChatParser.Domain.ResponsesModels;
-using TwitchChatParser.Infrastructure.Data;
+using TwitchChatParser.Infrastructure.Repositories.Interfaces;
 
 namespace TwitchChatParser.Infrastructure.Services;
 
 public class TwitchTokenService(
     HttpClient httpClient,
-    IConfiguration configuration,
-    DataContext dataContext,
+    IServiceScopeFactory scopeFactory,
+    IOptions<TwitchSettings> twitchSettingsOptions,
     ILogger<TwitchTokenService> logger)
 {
     private const string OAuthBaseUrl = "https://id.twitch.tv/oauth2";
+    private readonly TwitchSettings _twitchSettings = twitchSettingsOptions.Value;
+    
+    private static readonly SemaphoreSlim _semaphore = new(1, 1);
+    private static string _accessToken = string.Empty;
 
-    private async Task<bool> ValidateAccessTokenAsync(TokenInfo tokenInfo)
+    public static string Token => _accessToken;
+
+    private async Task<bool> ValidateAccessTokenAsync(string accessToken)
     {
         var request = new HttpRequestMessage(HttpMethod.Get, OAuthBaseUrl + "/validate");
-        request.Headers.Add("Authorization", $"Bearer {tokenInfo.AccessToken}");
+        request.Headers.Add("Authorization", $"Bearer {accessToken}");
 
         var response = await httpClient.SendAsync(request);
         return response.IsSuccessStatusCode;
     }
 
-    private async Task<TokenInfo> RefreshAccessTokenAsync(string refreshToken, DataContext dbContext)
+    private async Task<TokenInfo> RefreshAccessTokenAsync(string refreshToken, ITokenInfoRepository tokenInfoRepository)
     {
         var parameters = new Dictionary<string, string>
         {
-            { "client_id", configuration["TwitchSettings:ClientId"]! },
-            { "client_secret", configuration["TwitchSettings:ClientSecret"]! },
+            { "client_id", _twitchSettings.ClientId! },
+            { "client_secret", _twitchSettings.ClientSecret! },
             { "grant_type", "refresh_token" },
             { "refresh_token", refreshToken }
         };
@@ -52,58 +61,57 @@ public class TwitchTokenService(
             CreationTime = DateTime.UtcNow
         };
 
-        await dbContext.TokenInfos.AddAsync(newToken);
-        await dbContext.SaveChangesAsync();
+        await tokenInfoRepository.AddAsync(newToken);
+        await tokenInfoRepository.SaveChangesAsync();
 
         return newToken;
     }
 
     public async Task<string> GetAccessTokenAsync(bool forceRefresh = false)
     {
-        var lastToken = dataContext.TokenInfos
-            .OrderByDescending(t => t.CreationTime)
-            .FirstOrDefault();
-
-        if (lastToken == null)
+        await _semaphore.WaitAsync();
+        try
         {
-            logger.LogWarning("No token found in the database. Do you want to get a new one? (y/n)");
-            var input = Console.ReadLine();
-            while (string.IsNullOrEmpty(input) || string.IsNullOrWhiteSpace(input))
+            if (!forceRefresh && !string.IsNullOrEmpty(_accessToken))
             {
-                logger.LogWarning("Invalid input. Please enter 'y' or 'n'.");
-                input = Console.ReadLine();
+                return _accessToken;
             }
 
-            if (input.ToLower() != "y")
+            using var scope = scopeFactory.CreateScope();
+            var tokenInfoRepository = scope.ServiceProvider.GetRequiredService<ITokenInfoRepository>();
+
+            var lastToken = await tokenInfoRepository.GetLatestTokenAsync();
+
+            if (lastToken == null)
             {
-                Environment.Exit(0);
+                logger.LogWarning("No token found in the database. Manual authorization required.");
+                lastToken = await GetInitialTokenAsync();
             }
 
-            lastToken = await GetInitialTokenAsync();
-        }
+            bool isExpired = DateTime.UtcNow >= lastToken.CreationTime.AddSeconds(lastToken.ExpirationTime);
+            
+            if (forceRefresh || isExpired || !await ValidateAccessTokenAsync(lastToken.AccessToken))
+            {
+                logger.LogInformation("Token is expired, invalid or refresh is forced. Refreshing...");
+                var refreshedToken = await RefreshAccessTokenAsync(lastToken.RefreshToken, tokenInfoRepository);
+                _accessToken = refreshedToken.AccessToken;
+                return _accessToken;
+            }
 
-        if (forceRefresh || DateTime.UtcNow >= lastToken.CreationTime.AddSeconds(lastToken.ExpirationTime))
-        {
-            logger.LogInformation("Token is expired or refresh is forced. Refreshing...");
-            var refreshedToken = await RefreshAccessTokenAsync(lastToken.RefreshToken, dataContext);
-            return refreshedToken.AccessToken;
+            _accessToken = lastToken.AccessToken;
+            return _accessToken;
         }
-
-        if (!await ValidateAccessTokenAsync(lastToken))
+        finally
         {
-            logger.LogInformation("Access token is invalid. Refreshing...");
-            var refreshedToken = await RefreshAccessTokenAsync(lastToken.RefreshToken, dataContext);
-            return refreshedToken.AccessToken;
+            _semaphore.Release();
         }
-        
-        return lastToken.AccessToken;
     }
 
     private async Task<TokenInfo> GetInitialTokenAsync()
     {
-        var clientId = configuration["TwitchSettings:ClientId"]!;
-        var redirectUri = configuration["TwitchSettings:RedirectUri"] ?? "https://localhost:3000";
-        var scopes = "chat:read";
+        string clientId = _twitchSettings.ClientId!;
+        string redirectUri = _twitchSettings.RedirectUri ?? "https://localhost:3000";
+        string scopes = "chat:read";
 
         var uriBuilder = new UriBuilder(OAuthBaseUrl + "/authorize");
         var query = HttpUtility.ParseQueryString(uriBuilder.Query);
@@ -119,12 +127,9 @@ public class TwitchTokenService(
             "\nAfter authorization, you will be redirected to a page. " +
             "Copy the 'code' parameter from the URL (e.g., http://localhost/?code=YOUR_CODE_HERE&scope=...)");
         Console.Write("Enter the code: ");
-        var code = Console.ReadLine();
+        string? code = Console.ReadLine();
 
-        if (string.IsNullOrWhiteSpace(code))
-        {
-            throw new InvalidOperationException("Authorization code is required.");
-        }
+        if (string.IsNullOrWhiteSpace(code)) throw new InvalidOperationException("Authorization code is required.");
 
         return await RequestTokensWithCodeAsync(code);
     }
@@ -133,11 +138,11 @@ public class TwitchTokenService(
     {
         var parameters = new Dictionary<string, string>
         {
-            { "client_id", configuration["TwitchSettings:ClientId"]! },
-            { "client_secret", configuration["TwitchSettings:ClientSecret"]! },
+            { "client_id", _twitchSettings.ClientId! },
+            { "client_secret", _twitchSettings.ClientSecret! },
             { "code", code },
             { "grant_type", "authorization_code" },
-            { "redirect_uri", configuration["TwitchSettings:RedirectUri"] ?? "https://localhost:3000" }
+            { "redirect_uri", _twitchSettings.RedirectUri ?? "https://localhost:3000" }
         };
 
         var content = new FormUrlEncodedContent(parameters);
@@ -148,7 +153,6 @@ public class TwitchTokenService(
             JsonSerializer.Deserialize<TwitchTokenResponseDto>(await response.Content.ReadAsStringAsync())
             ?? throw new InvalidOperationException("Failed to deserialize token response.");
 
-
         var newToken = new TokenInfo
         {
             Id = Guid.NewGuid(),
@@ -158,8 +162,11 @@ public class TwitchTokenService(
             CreationTime = DateTime.UtcNow
         };
 
-        await dataContext.TokenInfos.AddAsync(newToken);
-        await dataContext.SaveChangesAsync();
+        using var scope = scopeFactory.CreateScope();
+        var tokenInfoRepository = scope.ServiceProvider.GetRequiredService<ITokenInfoRepository>();
+        
+        await tokenInfoRepository.AddAsync(newToken);
+        await tokenInfoRepository.SaveChangesAsync();
 
         logger.LogInformation("Successfully received and saved new tokens.");
 

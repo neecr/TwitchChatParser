@@ -1,30 +1,31 @@
 ﻿using System.Text.Json;
 using System.Web;
-using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
+using TwitchChatParser.Domain.Configuration;
 using TwitchChatParser.Domain.ResponsesModels;
 
 namespace TwitchChatParser.Infrastructure.Services;
 
 public class TwitchApiService(
     HttpClient httpClient,
-    IConfiguration configuration,
-    TwitchTokenService twitchTokenService)
+    IOptions<TwitchSettings> twitchSettingsOptions)
 {
     private const string HelixBaseUrl = "https://api.twitch.tv/helix";
+    private readonly TwitchSettings _twitchSettings = twitchSettingsOptions.Value;
 
     public async Task<List<UserDataDto>> GetUserDataByUsernameAsync(List<string> channels)
     {
-        var accessToken = await twitchTokenService.GetAccessTokenAsync();
-        var clientId = configuration["TwitchSettings:ClientId"] ??
-                       throw new InvalidOperationException("ClientId is missing.");
+        string accessToken = TwitchTokenService.Token;
+        string clientId = _twitchSettings.ClientId ??
+                          throw new InvalidOperationException("ClientId is missing.");
 
         var uriBuilder = new UriBuilder("https://api.twitch.tv/helix/users");
 
         var query = HttpUtility.ParseQueryString(uriBuilder.Query);
 
-        foreach (var channel in channels) query.Add("login", channel);
+        foreach (string channel in channels) query.Add("login", channel);
         uriBuilder.Query = query.ToString();
-        var finalUrl = uriBuilder.ToString();
+        string finalUrl = uriBuilder.ToString();
 
         var request = new HttpRequestMessage(HttpMethod.Get, finalUrl);
 
@@ -44,9 +45,9 @@ public class TwitchApiService(
 
     public async Task<FollowersDto> GetFollowersByIdAsync(string channelId)
     {
-        var accessToken = await twitchTokenService.GetAccessTokenAsync();
-        var clientId = configuration["TwitchSettings:ClientId"] ??
-                       throw new InvalidOperationException("ClientId is missing.");
+        string accessToken = TwitchTokenService.Token;
+        string clientId = _twitchSettings.ClientId ??
+                          throw new InvalidOperationException("ClientId is missing.");
 
         var uriBuilder = new UriBuilder(HelixBaseUrl + "/channels/followers");
 
@@ -54,7 +55,7 @@ public class TwitchApiService(
 
         query.Add("broadcaster_id", channelId);
         uriBuilder.Query = query.ToString();
-        var finalUrl = uriBuilder.ToString();
+        string finalUrl = uriBuilder.ToString();
 
         var request = new HttpRequestMessage(HttpMethod.Get, finalUrl);
 
