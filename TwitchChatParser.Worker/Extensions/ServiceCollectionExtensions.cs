@@ -1,10 +1,9 @@
-﻿using System;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
 using TwitchChatParser.Application.Utils;
+using TwitchChatParser.Domain.Configuration;
 using TwitchChatParser.Infrastructure.Data;
 using TwitchChatParser.Infrastructure.Repositories;
 using TwitchChatParser.Infrastructure.Repositories.Interfaces;
@@ -19,6 +18,10 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         HostBuilderContext hostContext)
     {
+        services.Configure<TwitchSettings>(hostContext.Configuration.GetSection(TwitchSettings.Position));
+        services.Configure<MessageProcessingSettings>(
+            hostContext.Configuration.GetSection(MessageProcessingSettings.Position));
+
         string connectionString;
         if (hostContext.HostingEnvironment.IsDevelopment())
         {
@@ -46,8 +49,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IBanRepository, BanRepository>();
         services.AddScoped<IFollowersInfoRepository, FollowersInfoRepository>();
         services.AddScoped<IChannelUserRelationRepository, ChannelUserRelationRepository>();
+        services.AddScoped<ITokenInfoRepository, TokenInfoRepository>();
 
-        services.AddScoped<TwitchTokenService>();
+        services.AddSingleton<TwitchTokenService>();
         services.AddScoped<TwitchApiService>();
 
         services.AddHttpClient<TwitchTokenService>();
@@ -56,8 +60,8 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<MessageProcessingHost>();
         services.AddHostedService<FollowersUpdateHostedService>();
         services.AddHostedService<TwitchHost>();
-        
-        
+        services.AddHostedService<TokenUpdateHostedService>();
+
         return services;
     }
 }
